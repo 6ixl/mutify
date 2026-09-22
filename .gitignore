@@ -1,0 +1,30 @@
+# Сборка
+build/
+dist/
+*.manifest
+
+# Модель распознавания — качается приложением, 45 МБ и больше
+models/
+
+# Личные данные: настройки, словарь, статистика, профили
+data/
+
+# Свои звуки-заглушки
+assets/sounds/*
+!assets/sounds/.gitkeep
+
+# Снимки для проверки вёрстки
+shot_*.png
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Редакторы
+.vscode/
+.idea/
+*.swp
