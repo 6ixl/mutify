@@ -45,19 +45,22 @@ class DelayRing:
         """
         with self._lock:
             target = self.write_pos - delay_samples
-            # Дрейф часов между двумя звуковыми картами: мягко подтягиваем указатель.
+            # Две звуковые карты идут по своим часам. Раньше расхождение
+            # выправлялось по одному сэмплу за блок, и вывод то и дело
+            # обгонял запись — в эфир уходили провалы тишины, похожие на
+            # работу шумоподавителя. Теперь подтягиваемся плавно, но заметно.
             drift = target - self.read_pos
-            if drift > self.samplerate // 10 or drift < -self.samplerate // 10:
+            if abs(drift) > self.samplerate // 10:
                 self.read_pos = target
-            elif drift > n:
-                self.read_pos += 1      # выход отстал — чуть ускоряемся
-            elif drift < -n:
-                self.read_pos -= 1      # выход убежал вперёд — притормаживаем
+            elif abs(drift) > n:
+                self.read_pos += drift // 8
 
             pos = self.read_pos
-            # В первые delay_ms читать ещё нечего: отдаём тишину, но указатель
-            # двигаем как обычно, иначе поток никогда не догонит запись.
-            if pos < 0 or pos + n > self.write_pos:
+            if pos + n > self.write_pos:
+                # Данных ещё нет: вместо тишины отдаём самое свежее, что есть,
+                # временно сокращая задержку.
+                pos = self.write_pos - n
+            if pos < 0:
                 self.read_pos = pos + n
                 return np.zeros(n, dtype=np.float32), pos
 

@@ -65,9 +65,12 @@ class ReplacementSound:
         self._data = np.zeros(0, dtype=np.float32)
         self._phase = 0
         self.source_name = "тишина"
+        self.how = ""
+        self.error = ""
 
     def load(self, cfg: MuteConfig) -> None:
         self._phase = 0
+        self.error = ""
         if cfg.mode == "silence":
             self._data = np.zeros(0, dtype=np.float32)
             self.source_name = "тишина"
@@ -77,11 +80,14 @@ class ReplacementSound:
             self.source_name = "встроенный сигнал"
             return
         try:
-            self._data = self._load_file(Path(cfg.sound_path))
+            self._data, how = self._load_file(Path(cfg.sound_path))
             self.source_name = Path(cfg.sound_path).name
-        except Exception:
+            self.how = how
+        except Exception as exc:
+            # Молча подменять бипом нельзя: человек будет думать, что поставил свой звук.
             self._data = self._make_beep()
-            self.source_name = "встроенный сигнал (файл не открылся)"
+            self.source_name = "встроенный сигнал"
+            self.error = str(exc)
 
     def _make_beep(self) -> np.ndarray:
         dur = 0.25
@@ -90,19 +96,10 @@ class ReplacementSound:
         env = np.minimum(1.0, np.minimum(t, dur - t) * 60).astype(np.float32)
         return tone * env * 0.6
 
-    def _load_file(self, path: Path) -> np.ndarray:
-        import soundfile as sf
+    def _load_file(self, path: Path) -> tuple[np.ndarray, str]:
+        from app.audio.decode import load_audio
 
-        data, sr = sf.read(str(path), dtype="float32", always_2d=True)
-        mono = data.mean(axis=1)
-        if sr != self.samplerate and len(mono) > 1:
-            n_out = int(len(mono) * self.samplerate / sr)
-            mono = np.interp(
-                np.linspace(0, len(mono) - 1, n_out),
-                np.arange(len(mono)),
-                mono,
-            ).astype(np.float32)
-        return mono
+        return load_audio(path, self.samplerate)
 
     def take(self, n: int, volume: float) -> np.ndarray:
         """Следующие n сэмплов подменного звука, зациклено."""

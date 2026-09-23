@@ -18,6 +18,11 @@ class AudioConfig:
     blocksize: int = 512                 # 32 мс при 16 кГц
     input_gain_db: float = 0.0
     output_gain_db: float = 0.0
+    # Обработка звука. По умолчанию выключена: приложение передаёт микрофон
+    # как есть и ничего не «улучшает».
+    noise_gate: bool = False
+    gate_threshold_db: float = -45.0     # тише этого — считаем шумом
+    gate_release_ms: int = 120           # как плавно открывается и закрывается
 
 
 @dataclass

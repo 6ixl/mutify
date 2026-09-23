@@ -50,6 +50,7 @@ class AudioPage(QWidget):
         root.addWidget(self._route_card())
         root.addWidget(self._delay_card())
         root.addWidget(self._levels_card())
+        root.addWidget(self._processing_card())
         root.addWidget(self._cable_card())
         root.addStretch(1)
 
@@ -176,6 +177,53 @@ class AudioPage(QWidget):
         box.addLayout(line)
         return card
 
+    def _processing_card(self) -> Card:
+        cfg = self.ctx.cfg.audio
+        card = Card(
+            "Обработка звука",
+            "По умолчанию приложение ничего не «улучшает»: микрофон передаётся "
+            "как есть, без шумоподавления и автогромкости.",
+        )
+        box = card.body()
+
+        self.gate_toggle = ToggleSwitch()
+        self.gate_toggle.setChecked(cfg.noise_gate)
+        self.gate_toggle.toggled.connect(self._toggle_gate)
+        box.addWidget(
+            Row("Шумоподавление", self.gate_toggle,
+                "Приглушает паузы между словами: убирает гул вентиляторов и шум "
+                "комнаты. Включайте, только если фон действительно мешает.")
+        )
+
+        self.gate_threshold = SliderRow(
+            "Порог шума", -70, -20, int(cfg.gate_threshold_db), " дБ",
+            "Всё тише этого уровня считается шумом. Слишком высокий порог "
+            "начнёт срезать окончания слов.",
+        )
+        self.gate_threshold.changed.connect(
+            lambda v: self._set("gate_threshold_db", float(v))
+        )
+        box.addWidget(self.gate_threshold)
+
+        self.gate_release = SliderRow(
+            "Плавность", 20, 500, cfg.gate_release_ms, " мс",
+            "Насколько мягко шумоподавление открывается и закрывается.",
+            step=10,
+        )
+        self.gate_release.changed.connect(lambda v: self._set("gate_release_ms", v))
+        box.addWidget(self.gate_release)
+
+        self._update_gate_enabled(cfg.noise_gate)
+        return card
+
+    def _toggle_gate(self, enabled: bool) -> None:
+        self._set("noise_gate", enabled)
+        self._update_gate_enabled(enabled)
+
+    def _update_gate_enabled(self, enabled: bool) -> None:
+        self.gate_threshold.setEnabled(enabled)
+        self.gate_release.setEnabled(enabled)
+
     def _cable_card(self) -> Card:
         card = Card("Виртуальный микрофон")
         box = card.body()
@@ -265,6 +313,8 @@ class AudioPage(QWidget):
         self.block.set_value(self.ctx.cfg.audio.blocksize, silent=True)
         self.in_gain.set_value(int(self.ctx.cfg.audio.input_gain_db), silent=True)
         self.out_gain.set_value(int(self.ctx.cfg.audio.output_gain_db), silent=True)
+        self.gate_threshold.set_value(int(self.ctx.cfg.audio.gate_threshold_db), silent=True)
+        self.gate_release.set_value(self.ctx.cfg.audio.gate_release_ms, silent=True)
         self._update_delay_note(self.ctx.cfg.mute.delay_ms)
 
     def _open_calibration(self) -> None:

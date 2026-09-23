@@ -25,7 +25,7 @@ excludes = [
     "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineQuick",
     "PySide6.QtQuick", "PySide6.QtQuick3D", "PySide6.QtQml", "PySide6.Qt3DCore",
     "PySide6.Qt3DRender", "PySide6.Qt3DAnimation", "PySide6.Qt3DExtras",
-    "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtMultimedia",
+    "PySide6.QtCharts", "PySide6.QtDataVisualization",
     "PySide6.QtMultimediaWidgets", "PySide6.QtBluetooth", "PySide6.QtNfc",
     "PySide6.QtPositioning", "PySide6.QtLocation", "PySide6.QtSensors",
     "PySide6.QtSerialPort", "PySide6.QtSql", "PySide6.QtTest", "PySide6.QtPdf",
@@ -42,7 +42,10 @@ a = Analysis(
     pathex=[],
     binaries=binaries,
     datas=datas,
-    hiddenimports=["vosk", "sounddevice", "soundfile", "numpy"],
+    # QtMultimedia нужен, чтобы читать mp3, m4a и звук из видео системными
+    # кодеками Windows, когда libsndfile такой файл не осилил.
+    hiddenimports=["vosk", "sounddevice", "soundfile", "numpy",
+                   "PySide6.QtMultimedia"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.paths import SOUNDS_DIR
+from app.ui import theme
 from app.ui.widgets import Card, SliderRow
 
 AUDIO_EXT = {".wav", ".mp3", ".ogg", ".flac", ".m4a"}
@@ -140,6 +141,10 @@ class SoundsPage(QWidget):
         line.addWidget(self.current_label)
         card.add_layout(line)
 
+        self.status_label = QLabel()
+        self.status_label.setWordWrap(True)
+        card.add(self.status_label)
+
         self.reload()
         return card
 
@@ -162,6 +167,35 @@ class SoundsPage(QWidget):
         path = self.ctx.cfg.mute.sound_path
         name = Path(path).name if path else "не выбран"
         self.current_label.setText(f"выбран: {name}")
+        self._check_sound(path)
+
+    def _check_sound(self, path: str) -> None:
+        """Проверяем, что файл действительно читается, и говорим об этом вслух."""
+        if not hasattr(self, "status_label"):
+            return
+        if self.ctx.cfg.mute.mode != "sound" or not path:
+            self.status_label.setText("")
+            return
+
+        from app.audio.muter import ReplacementSound
+
+        probe = ReplacementSound(self.ctx.cfg.audio.samplerate)
+        probe.load(self.ctx.cfg.mute)
+        if probe.error:
+            self.status_label.setText(
+                "\n".join((
+                    "Этот файл не читается: " + probe.error,
+                    "Поставьте другой файл или сконвертируйте его в wav.",
+                ))
+            )
+            self.status_label.setStyleSheet(f"color: {theme.DANGER}; font-size: 11px;")
+        else:
+            seconds = len(probe._data) / max(1, self.ctx.cfg.audio.samplerate)
+            how = f" (через {probe.how})" if probe.how not in ("libsndfile", "") else ""
+            self.status_label.setText(
+                f"Звук готов: {seconds:.1f} с{how}"
+            )
+            self.status_label.setStyleSheet(f"color: {theme.OK}; font-size: 11px;")
 
     # ------------------------------------------------------------ действия
     def reload_values(self) -> None:
@@ -221,7 +255,15 @@ class SoundsPage(QWidget):
         self.ctx.cfg.mute.mode = "sound"
         self.ctx.save_and_apply()
         self.reload()
-        self.ctx.notify(f"Звук добавлен: {target.name}", True)
+
+        from app.audio.muter import ReplacementSound
+
+        probe = ReplacementSound(self.ctx.cfg.audio.samplerate)
+        probe.load(self.ctx.cfg.mute)
+        if probe.error:
+            self.ctx.notify("Файл не читается: " + probe.error, False)
+        else:
+            self.ctx.notify(f"Звук добавлен: {target.name}", True)
 
     def _remove_file(self) -> None:
         item = self.list.currentItem()

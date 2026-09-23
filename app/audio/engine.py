@@ -63,6 +63,7 @@ class AudioEngine(QObject):
         # число относительно позиции в кольцевом буфере.
         self._stt_offset = 0
         self.missed = 0
+        self._gate_gain = 1.0
         self._last_level_emit = 0.0
         self._last_stats_emit = 0.0
         self._muting_now = False
@@ -232,6 +233,9 @@ class AudioEngine(QObject):
             self._muting_now = active
             self.mute_state.emit(active)
 
+        if self.cfg.audio.noise_gate:
+            data = self._apply_gate(data)
+
         data = np.clip(data * db_to_gain(self.cfg.audio.output_gain_db), -1.0, 1.0)
         outdata[:] = np.repeat(data[:, None], self._out_channels, axis=1)
 
@@ -258,6 +262,30 @@ class AudioEngine(QObject):
         if len(data) < frames:
             data = np.pad(data, (0, frames - len(data)))
         outdata[:] = np.repeat(data[:frames, None], outdata.shape[1], axis=1)
+
+    def _apply_gate(self, data: np.ndarray) -> np.ndarray:
+        """Шумоподавление: приглушает паузы тише порога.
+
+        Выключено по умолчанию — включается и настраивается на странице «Аудио».
+        """
+        level = float(np.sqrt(np.mean(data ** 2)))
+        threshold = db_to_gain(self.cfg.audio.gate_threshold_db)
+        target = 1.0 if level >= threshold else 0.0
+
+        release = max(1, int(self.cfg.audio.samplerate
+                             * self.cfg.audio.gate_release_ms / 1000))
+        step = len(data) / release
+        previous = self._gate_gain
+        if target > previous:
+            self._gate_gain = min(1.0, previous + step)
+        elif target < previous:
+            self._gate_gain = max(0.0, previous - step)
+
+        if previous >= 0.999 and self._gate_gain >= 0.999:
+            return data
+        # Плавный переход внутри блока, иначе на границах слышны щелчки.
+        ramp = np.linspace(previous, self._gate_gain, len(data), dtype=np.float32)
+        return data * ramp
 
     # --------------------------------------------- сглаживание краёв заглушки
     def _smooth(self, env: np.ndarray) -> np.ndarray:
