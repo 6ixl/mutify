@@ -15,7 +15,7 @@ from app.paths import DATA_DIR
 from app.system import autostart
 from app.ui import theme
 from app.ui.icon import draw_logo
-from app.ui.widgets import Badge, Card, Row, ToggleSwitch
+from app.ui.widgets import Badge, Card, FlowLayout, Row, ToggleSwitch, hint_label
 
 
 class GeneralPage(QWidget):
@@ -147,8 +147,7 @@ class GeneralPage(QWidget):
         )
         box = card.body()
 
-        line = QHBoxLayout()
-        line.setSpacing(8)
+        line = FlowLayout(spacing=8)
 
         settings = QPushButton("Сбросить настройки")
         settings.setToolTip(
@@ -172,17 +171,12 @@ class GeneralPage(QWidget):
         profiles.setObjectName("Ghost")
         profiles.clicked.connect(self._reset_profiles)
         line.addWidget(profiles)
-
-        line.addStretch(1)
         box.addLayout(line)
 
-        note = QLabel(
+        box.addWidget(hint_label(
             "Сброс настроек остановит мут и заново подберёт микрофон и выход. "
-            "Свои звуки в папке и скачанная модель остаются."
-        )
-        note.setObjectName("Hint")
-        note.setWordWrap(True)
-        box.addWidget(note)
+            "Свои звуки в папке и скачанная модель остаются.", self
+        ))
         return card
 
     def _confirm(self, title: str, question: str) -> bool:

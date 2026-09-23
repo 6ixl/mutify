@@ -5,8 +5,8 @@ from __future__ import annotations
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QStackedWidget, QVBoxLayout, QWidget
+    QApplication, QButtonGroup, QComboBox, QFrame, QHBoxLayout, QLabel,
+    QPushButton, QStackedWidget, QVBoxLayout, QWidget
 )
 
 from app.audio import devices
@@ -162,7 +162,27 @@ class MainWindow(QWidget):
         }
         for _, key in self.NAV:
             self.stack.addWidget(self.pages[key])
+        self._tame_widths()
         root.addWidget(self.stack, 1)
+
+    def _tame_widths(self) -> None:
+        """Не давать отдельным элементам распирать страницу по ширине.
+
+        Длинная подсказка или название устройства в выпадающем списке способны
+        задать всей странице минимальную ширину больше окна — тогда появляется
+        горизонтальная прокрутка, а содержимое обрезается.
+        """
+        for page in self.pages.values():
+            for label in page.findChildren(QLabel):
+                if label.objectName() in ("Hint", "PageHint"):
+                    label.setWordWrap(True)
+                    label.setMinimumWidth(140)
+            for combo in page.findChildren(QComboBox):
+                combo.setSizeAdjustPolicy(
+                    QComboBox.AdjustToMinimumContentsLengthWithIcon
+                )
+                combo.setMinimumContentsLength(12)
+                combo.setMaximumWidth(280)
 
     def _sidebar(self) -> QWidget:
         bar = QWidget()

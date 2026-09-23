@@ -12,7 +12,9 @@ from app.audio import devices
 from app.audio.cable_installer import CableInstaller
 from app.audio.devices import VB_HINTS
 from app.ui import theme
-from app.ui.widgets import Badge, Card, DeviceCombo, Row, SliderRow, ToggleSwitch
+from app.ui.widgets import (
+    Badge, Card, DeviceCombo, FlowLayout, Row, SliderRow, ToggleSwitch, hint_label
+)
 
 VB_DOWNLOAD = "https://vb-audio.com/Cable/"
 
@@ -95,7 +97,7 @@ class AudioPage(QWidget):
         )
         box.addWidget(Row("Устройство прослушки", self.monitor_combo))
 
-        line = QHBoxLayout()
+        line = FlowLayout(spacing=8)
         refresh = QPushButton("Обновить список устройств")
         refresh.setObjectName("Ghost")
         refresh.clicked.connect(self.reload_devices)
@@ -105,7 +107,6 @@ class AudioPage(QWidget):
         auto.setObjectName("Ghost")
         auto.clicked.connect(self._autoselect)
         line.addWidget(auto)
-        line.addStretch(1)
         box.addLayout(line)
 
         self.reload_devices()

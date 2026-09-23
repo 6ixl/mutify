@@ -25,6 +25,20 @@ def glow(widget: QWidget, color: str = theme.ACCENT, radius: int = 28) -> None:
     widget.setGraphicsEffect(effect)
 
 
+def hint_label(text: str, parent: QWidget | None = None) -> QLabel:
+    """Подсказка под настройкой.
+
+    Перенос по словам плюс небольшая минимальная ширина: иначе длинный текст
+    задирает минимальный размер всей карточки, и две колонки перестают
+    помещаться в окно.
+    """
+    label = QLabel(text, parent)
+    label.setObjectName("Hint")
+    label.setWordWrap(True)
+    label.setMinimumWidth(140)
+    return label
+
+
 class Card(QFrame):
     """Панель с заголовком и вертикальной раскладкой внутри."""
 
@@ -39,10 +53,7 @@ class Card(QFrame):
             label.setObjectName("CardTitle")
             self._layout.addWidget(label)
         if hint:
-            sub = QLabel(hint)
-            sub.setObjectName("Hint")
-            sub.setWordWrap(True)
-            self._layout.addWidget(sub)
+            self._layout.addWidget(hint_label(hint, self))
 
     def body(self) -> QVBoxLayout:
         return self._layout
@@ -329,16 +340,15 @@ class Row(QWidget):
         line = QHBoxLayout()
         line.setContentsMargins(0, 0, 0, 0)
         text = QLabel(label)
-        line.addWidget(text)
+        text.setWordWrap(True)
+        text.setMinimumWidth(120)
+        line.addWidget(text, 1)
         line.addStretch(1)
         line.addWidget(control)
         outer.addLayout(line)
 
         if hint:
-            note = QLabel(hint)
-            note.setObjectName("Hint")
-            note.setWordWrap(True)
-            outer.addWidget(note)
+            outer.addWidget(hint_label(hint, self))
         self.control = control
 
 
@@ -365,8 +375,11 @@ class SliderRow(QWidget):
 
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
-        head.addWidget(QLabel(label))
-        head.addStretch(1)
+        head.setSpacing(10)
+        caption = QLabel(label)
+        caption.setWordWrap(True)
+        caption.setMinimumWidth(110)
+        head.addWidget(caption, 1)
 
         if self.editable:
             self.spin = QDoubleSpinBox()
@@ -375,7 +388,10 @@ class SliderRow(QWidget):
             self.spin.setSingleStep(1.0)
             self.spin.setSuffix(suffix)
             self.spin.setValue(float(value))
-            self.spin.setFixedWidth(104)
+            # Не фиксируем ширину: в узкой карточке поле должно сжиматься,
+            # иначе оно вылезает за её край.
+            self.spin.setMinimumWidth(72)
+            self.spin.setMaximumWidth(100)
             self.spin.setAlignment(Qt.AlignRight)
             self.spin.setToolTip(
                 f"Можно вписать значение вручную: от {hard_min} до {hard_max}"
@@ -399,10 +415,7 @@ class SliderRow(QWidget):
         outer.addWidget(self.slider)
 
         if hint:
-            note = QLabel(hint)
-            note.setObjectName("Hint")
-            note.setWordWrap(True)
-            outer.addWidget(note)
+            outer.addWidget(hint_label(hint, self))
 
     # ---------------------------------------------------------- изменения
     def _on_slider(self, value: int) -> None:
@@ -454,7 +467,9 @@ class DeviceCombo(QComboBox):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumWidth(280)
+        # Названия устройств длинные, но растягивать ими всю страницу нельзя.
+        self.setMinimumWidth(170)
+        self.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
 
     def fill(self, devices, selected: int | None, highlight: tuple = ()) -> None:
         self.blockSignals(True)

@@ -351,6 +351,9 @@ class DashboardPage(QWidget):
 
     # ------------------------------------------------------------ обновление
     def refresh(self) -> None:
+        # Раскладку пересчитываем и здесь: при переключении страниц события
+        # изменения размера может не быть, а колонки должны встать правильно.
+        self._relayout_top(self.width())
         cfg = self.ctx.cfg
         running = self.ctx.engine.running
 

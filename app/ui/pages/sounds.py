@@ -7,13 +7,15 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QButtonGroup, QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QPushButton, QRadioButton, QVBoxLayout, QWidget
+    QButtonGroup, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QListWidget,
+    QListWidgetItem, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget
 )
 
 from app.paths import SOUNDS_DIR
 from app.ui import theme
-from app.ui.widgets import Card, Row, SliderRow, ToggleSwitch
+from app.ui.widgets import (
+    Card, FlowLayout, Row, SliderRow, ToggleSwitch, hint_label
+)
 
 AUDIO_EXT = {".wav", ".mp3", ".ogg", ".flac", ".m4a"}
 
@@ -23,7 +25,18 @@ class SoundsPage(QWidget):
         super().__init__(parent)
         self.ctx = ctx
 
-        root = QVBoxLayout(self)
+        # Настроек здесь много, поэтому страница прокручивается: иначе при
+        # невысоком окне карточки сжимаются и подсказки наезжают друг на друга.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        outer.addWidget(scroll)
+
+        holder = QWidget()
+        scroll.setWidget(holder)
+        root = QVBoxLayout(holder)
         root.setContentsMargins(28, 24, 28, 24)
         root.setSpacing(16)
 
@@ -33,15 +46,41 @@ class SoundsPage(QWidget):
 
         hint = QLabel("Чем подменять мат и насколько широко вырезать слово.")
         hint.setObjectName("PageHint")
+        hint.setWordWrap(True)
+        hint.setMinimumWidth(200)
         root.addWidget(hint)
 
-        columns = QHBoxLayout()
-        columns.setSpacing(16)
-        columns.addWidget(self._mode_card(), 1)
-        columns.addWidget(self._shape_card(), 1)
-        root.addLayout(columns)
+        self.mode_card = self._mode_card()
+        self.shape_card = self._shape_card()
+        self._columns = QGridLayout()
+        self._columns.setSpacing(16)
+        self._stacked = False
+        self._columns.addWidget(self.mode_card, 0, 0)
+        self._columns.addWidget(self.shape_card, 0, 1)
+        root.addLayout(self._columns)
 
-        root.addWidget(self._library_card(), 1)
+        root.addWidget(self._library_card())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._relayout(self.width())
+
+    def _relayout(self, width: int) -> None:
+        """Узкое окно — карточки в столбик, широкое — рядом."""
+        needed = (self.mode_card.minimumSizeHint().width()
+                  + self.shape_card.minimumSizeHint().width() + 16 + 56)
+        stacked = width < needed
+        if stacked == self._stacked:
+            return
+        self._stacked = stacked
+        self._columns.removeWidget(self.mode_card)
+        self._columns.removeWidget(self.shape_card)
+        if stacked:
+            self._columns.addWidget(self.mode_card, 0, 0)
+            self._columns.addWidget(self.shape_card, 1, 0)
+        else:
+            self._columns.addWidget(self.mode_card, 0, 0)
+            self._columns.addWidget(self.shape_card, 0, 1)
 
     # ------------------------------------------------------------ режим
     def _mode_card(self) -> Card:
@@ -67,9 +106,7 @@ class SoundsPage(QWidget):
             )
             self.mode_group.addButton(button)
             box.addWidget(button)
-            sub = QLabel(note)
-            sub.setObjectName("Hint")
-            sub.setWordWrap(True)
+            sub = hint_label(note, self)
             sub.setContentsMargins(24, 0, 0, 6)
             box.addWidget(sub)
 
@@ -165,16 +202,20 @@ class SoundsPage(QWidget):
 
     # ------------------------------------------------------------ библиотека
     def _library_card(self) -> Card:
+        # Полный путь в подсказку не пишем: длинная строка без пробелов не
+        # переносится и распирает всю страницу.
         card = Card(
             "Библиотека звуков",
-            f"Файлы лежат в папке {SOUNDS_DIR}. Добавленные сюда звуки доступны сразу.",
+            "Добавленные сюда звуки доступны сразу, без перезапуска.",
         )
         self.list = QListWidget()
+        self.list.setMinimumHeight(120)
         self.list.itemSelectionChanged.connect(self._on_select)
         card.add(self.list)
 
-        line = QHBoxLayout()
-        line.setSpacing(8)
+        # Кнопки переносятся на новую строку: в узком окне ряд из четырёх
+        # кнопок иначе распирает всю страницу.
+        line = FlowLayout(spacing=8)
         add = QPushButton("Добавить файл...")
         add.clicked.connect(self._add_file)
         line.addWidget(add)
@@ -189,11 +230,18 @@ class SoundsPage(QWidget):
         remove.clicked.connect(self._remove_file)
         line.addWidget(remove)
 
-        line.addStretch(1)
+        folder = QPushButton("Папка со звуками")
+        folder.setObjectName("Ghost")
+        folder.setToolTip(str(SOUNDS_DIR))
+        folder.clicked.connect(self._open_folder)
+        line.addWidget(folder)
+        card.add_layout(line)
+
         self.current_label = QLabel()
         self.current_label.setObjectName("Hint")
-        line.addWidget(self.current_label)
-        card.add_layout(line)
+        self.current_label.setWordWrap(True)
+        self.current_label.setMinimumWidth(140)
+        card.add(self.current_label)
 
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
@@ -201,6 +249,10 @@ class SoundsPage(QWidget):
 
         self.reload()
         return card
+
+    def refresh(self) -> None:
+        self._relayout(self.width())
+        self.reload_values()
 
     def reload(self) -> None:
         cfg = self.ctx.cfg.mute
@@ -355,6 +407,15 @@ class SoundsPage(QWidget):
             self.ctx.cfg.mute.sound_path = ""
             self.ctx.save_and_apply()
         self.reload()
+
+    def _open_folder(self) -> None:
+        import os
+        import subprocess
+
+        try:
+            os.startfile(str(SOUNDS_DIR))
+        except (OSError, AttributeError):
+            subprocess.Popen(["explorer", str(SOUNDS_DIR)])
 
     def _preview(self) -> None:
         """Проигрывает выбранный звук на устройстве по умолчанию."""

@@ -12,7 +12,9 @@ from app.stt import factory
 from app.stt.downloader import CATALOG, ModelDownloader
 from app.stt.vosk_engine import VoskSTT
 from app.ui import theme
-from app.ui.widgets import Badge, Card, FlowLayout, Row, SliderRow, ToggleSwitch
+from app.ui.widgets import (
+    Badge, Card, FlowLayout, Row, SliderRow, ToggleSwitch, hint_label
+)
 
 
 class AIPage(QWidget):
@@ -87,9 +89,10 @@ class AIPage(QWidget):
         card = Card("Модель Vosk", "Скачивается один раз и дальше работает офлайн.")
         box = card.body()
 
-        self.model_label = QLabel()
-        self.model_label.setObjectName("Hint")
-        self.model_label.setWordWrap(True)
+        # В подписи бывает полный путь к модели — длинная строка без пробелов,
+        # поэтому ей разрешено сжиматься и переноситься.
+        self.model_label = hint_label("", self)
+        self.model_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         box.addWidget(self.model_label)
 
         self.catalog_combo = QComboBox()
@@ -97,15 +100,12 @@ class AIPage(QWidget):
             self.catalog_combo.addItem(entry["title"], key)
         box.addWidget(Row("Какую скачать", self.catalog_combo))
 
-        self.catalog_hint = QLabel()
-        self.catalog_hint.setObjectName("Hint")
-        self.catalog_hint.setWordWrap(True)
+        self.catalog_hint = hint_label("", self)
         self.catalog_combo.currentIndexChanged.connect(self._update_catalog_hint)
         box.addWidget(self.catalog_hint)
         self._update_catalog_hint()
 
-        line = QHBoxLayout()
-        line.setSpacing(8)
+        line = FlowLayout(spacing=8)
         self.download_btn = QPushButton("Скачать модель")
         self.download_btn.clicked.connect(self._download)
         line.addWidget(self.download_btn)
@@ -114,7 +114,6 @@ class AIPage(QWidget):
         browse.setObjectName("Ghost")
         browse.clicked.connect(self._browse_model)
         line.addWidget(browse)
-        line.addStretch(1)
         box.addLayout(line)
 
         self.progress = QProgressBar()
@@ -309,10 +308,10 @@ class AIPage(QWidget):
         self.whisper_window.changed.connect(lambda v: self._set("whisper_window_ms", v))
         box.addWidget(self.whisper_window)
 
-        install = QLabel(
-            "Если движок недоступен, установите его командой:  pip install faster-whisper"
+        install = hint_label(
+            "Если движок недоступен, установите его командой:  pip install faster-whisper",
+            self,
         )
-        install.setObjectName("Hint")
         install.setTextInteractionFlags(Qt.TextSelectableByMouse)
         box.addWidget(install)
         return card
