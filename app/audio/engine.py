@@ -368,8 +368,12 @@ class AudioEngine(QObject):
             # мата. Если новый мат идёт вплотную к прошлому, глушим и промежуток
             # между ними — иначе в эфир просочится то, что модель не расслышала.
             burst = int(sr * self.cfg.mute.burst_ms / 1000)
-            if 0 < self._last_mute_end <= start <= self._last_mute_end + burst:
+            in_burst = 0 < self._last_mute_end <= start <= self._last_mute_end + burst
+            if in_burst:
                 self._schedule.add(self._last_mute_end, start, restart=False)
+                # Очень быстрая речь: после мата в серии держим заглушение ещё
+                # немного — следующее слово модель может не успеть разобрать.
+                end += int(sr * self.cfg.mute.burst_tail_ms / 1000)
             self._last_mute_end = max(self._last_mute_end, end)
 
             self._schedule.add(start, end)

@@ -83,6 +83,24 @@ class SoundsPage(QWidget):
         self.volume.changed.connect(self._set_volume)
         box.addWidget(self.volume)
 
+        self.length = SliderRow(
+            "Длина звука", 0, 5000, cfg.sound_length_ms, " мс",
+            "0 — играть звук как есть. Иначе звук обрезается до этой длины: "
+            "удобно, когда файл длинный, а заглушка нужна короткая.",
+            step=50, hard_min=0, hard_max=60000,
+        )
+        self.length.changed.connect(lambda v: self._set("sound_length_ms", v))
+        box.addWidget(self.length)
+
+        self.trim = ToggleSwitch()
+        self.trim.setChecked(cfg.trim_silence)
+        self.trim.toggled.connect(lambda v: self._set("trim_silence", v))
+        box.addWidget(
+            Row("Срезать тишину по краям", self.trim,
+                "Многие файлы начинаются с паузы: при каждом мате вместо звука "
+                "слышна пустота, и кажется, что заглушка не сработала.")
+        )
+
         self.full_sound = ToggleSwitch()
         self.full_sound.setChecked(cfg.full_sound)
         self.full_sound.toggled.connect(lambda v: self._set("full_sound", v))
@@ -132,6 +150,16 @@ class SoundsPage(QWidget):
         )
         self.burst.changed.connect(lambda v: self._set("burst_ms", v))
         box.addWidget(self.burst)
+
+        self.burst_tail = SliderRow(
+            "Хвост серии", 0, 1500, cfg.burst_tail_ms, " мс",
+            "Сколько держать заглушение после мата, сказанного в серии. "
+            "Помогает, когда вы материтесь очередью и модель не успевает "
+            "разобрать каждое слово. Одиночные маты это не удлиняет.",
+            step=50,
+        )
+        self.burst_tail.changed.connect(lambda v: self._set("burst_tail_ms", v))
+        box.addWidget(self.burst_tail)
         box.addStretch(1)
         return card
 
@@ -244,9 +272,14 @@ class SoundsPage(QWidget):
         self.post.set_value(cfg.post_pad_ms, silent=True)
         self.fade.set_value(cfg.fade_ms, silent=True)
         self.burst.set_value(cfg.burst_ms, silent=True)
-        self.full_sound.blockSignals(True)
-        self.full_sound.setChecked(cfg.full_sound)
-        self.full_sound.blockSignals(False)
+        self.burst_tail.set_value(cfg.burst_tail_ms, silent=True)
+        self.length.set_value(cfg.sound_length_ms, silent=True)
+        for toggle, value in ((self.trim, cfg.trim_silence),
+                              (self.full_sound, cfg.full_sound)):
+            toggle.blockSignals(True)
+            toggle.setChecked(value)
+            toggle.blockSignals(False)
+
         labels = {"sound": "Свой звук", "random": "Случайный из библиотеки",
                   "beep": "Встроенный сигнал", "silence": "Тишина"}
         target = labels.get(cfg.mode)

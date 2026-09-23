@@ -105,6 +105,8 @@ class ReplacementSound:
 
     # ------------------------------------------------------------ загрузка
     def load(self, cfg: MuteConfig) -> None:
+        self._trim = bool(getattr(cfg, "trim_silence", True))
+        self._limit = max(0, int(self.samplerate * getattr(cfg, "sound_length_ms", 0) / 1000))
         self._phase = 0
         self._queue.clear()
         self._last_index = -1
@@ -123,7 +125,7 @@ class ReplacementSound:
             return
 
         if cfg.mode == "beep" or not cfg.sound_path:
-            self._data = self._make_beep()
+            self._data = self._shape(self._make_beep())
             self._clips = [self._data]
             self.source_name = "встроенный сигнал"
             return
@@ -135,7 +137,7 @@ class ReplacementSound:
             self.how = how
         except Exception as exc:
             # Молча подменять бипом нельзя: человек будет думать, что поставил свой звук.
-            self._data = self._make_beep()
+            self._data = self._shape(self._make_beep())
             self._clips = [self._data]
             self.source_name = "встроенный сигнал"
             self.error = str(exc)
@@ -161,7 +163,7 @@ class ReplacementSound:
                 names.append(path.name)
 
         if not clips:
-            self._data = self._make_beep()
+            self._data = self._shape(self._make_beep())
             self._clips = [self._data]
             self.source_name = "встроенный сигнал"
             self.error = "в папке нет звуков, которые удалось прочитать"
@@ -182,7 +184,38 @@ class ReplacementSound:
     def _load_file(self, path: Path) -> tuple[np.ndarray, str]:
         from app.audio.decode import load_audio
 
-        return load_audio(path, self.samplerate)
+        data, how = load_audio(path, self.samplerate)
+        return self._shape(data), how
+
+    def _shape(self, data: np.ndarray) -> np.ndarray:
+        """Срезает тишину по краям и при необходимости укорачивает звук.
+
+        Тишина в начале файла особенно вредна: при каждом новом мате вместо
+        сигнала первые доли секунды звучала бы пустота, и казалось бы, что
+        звук не начинается заново.
+        """
+        if len(data) == 0:
+            return data
+
+        if getattr(self, "_trim", True):
+            threshold = max(1e-4, float(np.abs(data).max()) * 0.02)
+            loud = np.flatnonzero(np.abs(data) >= threshold)
+            if len(loud):
+                start = int(loud[0])
+                end = int(loud[-1]) + 1
+                # немного воздуха по краям, чтобы не срезать атаку
+                pad = int(self.samplerate * 0.005)
+                data = data[max(0, start - pad):min(len(data), end + pad)]
+
+        limit = getattr(self, "_limit", 0)
+        if limit and len(data) > limit:
+            data = data[:limit]
+            # короткий спад, иначе обрез даст щелчок
+            fade = min(len(data), int(self.samplerate * 0.01))
+            if fade > 1:
+                data = data.copy()
+                data[-fade:] *= np.linspace(1.0, 0.0, fade, dtype=np.float32)
+        return data
 
     # ------------------------------------------------------------ выбор
     def plan_next(self) -> int:
