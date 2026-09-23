@@ -71,8 +71,11 @@ class SoundsPage(QWidget):
             box.addWidget(sub)
 
         self.volume = SliderRow(
-            "Громкость заглушки", 0, 150, int(cfg.sound_volume * 100), " %",
-            "Насколько громко звучит подмена относительно исходной записи.",
+            "Громкость заглушки", 0, 200, int(cfg.sound_volume * 100), " %",
+            "Насколько громко звучит подмена. Значение можно вписать вручную — "
+            "вплоть до 1000%, если звук слишком тихий. Выше 100% возможна "
+            "перегрузка, следите за хрипом.",
+            hard_min=0, hard_max=1000,
         )
         self.volume.changed.connect(self._set_volume)
         box.addWidget(self.volume)
@@ -106,6 +109,16 @@ class SoundsPage(QWidget):
         )
         self.fade.changed.connect(lambda v: self._set("fade_ms", v))
         box.addWidget(self.fade)
+
+        self.burst = SliderRow(
+            "Склеивать серию матов", 0, 2000, cfg.burst_ms, " мс",
+            "Когда вы материтесь быстро, модель успевает разобрать не каждое "
+            "слово. Промежуток между двумя близкими матами тоже заглушается, "
+            "чтобы пропущенное не просочилось. 0 — выключить.",
+            step=50,
+        )
+        self.burst.changed.connect(lambda v: self._set("burst_ms", v))
+        box.addWidget(self.burst)
         box.addStretch(1)
         return card
 
@@ -205,6 +218,7 @@ class SoundsPage(QWidget):
         self.pre.set_value(cfg.pre_pad_ms, silent=True)
         self.post.set_value(cfg.post_pad_ms, silent=True)
         self.fade.set_value(cfg.fade_ms, silent=True)
+        self.burst.set_value(cfg.burst_ms, silent=True)
         labels = {"sound": "Свой звук", "beep": "Встроенный сигнал", "silence": "Тишина"}
         target = labels.get(cfg.mode)
         for button in self.mode_group.buttons():

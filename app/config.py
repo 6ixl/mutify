@@ -34,6 +34,7 @@ class MuteConfig:
     sound_path: str = ""                 # пользовательский wav/mp3 для замены
     sound_volume: float = 0.8
     fade_ms: int = 15                    # сглаживание на входе/выходе из мута, убирает щелчки
+    burst_ms: int = 700                  # склеивать маты, идущие подряд
     hotkey_panic: bool = True            # мгновенный ручной мут по кнопке
 
 

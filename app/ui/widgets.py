@@ -10,8 +10,8 @@ from PySide6.QtGui import (
     QBrush, QColor, QFontMetrics, QLinearGradient, QPainter, QPen, QRadialGradient
 )
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
-    QLayout, QSizePolicy, QSlider, QVBoxLayout, QWidget
+    QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGraphicsDropShadowEffect,
+    QHBoxLayout, QLabel, QLayout, QSizePolicy, QSlider, QVBoxLayout, QWidget
 )
 
 from app.ui import theme
@@ -343,15 +343,22 @@ class Row(QWidget):
 
 
 class SliderRow(QWidget):
-    """Ползунок с живой подписью значения."""
+    """Ползунок с живой подписью значения.
+
+    Если задан hard_min/hard_max, вместо подписи появляется поле ввода: ползунок
+    остаётся для удобных значений, а вписать можно куда больше — например,
+    поднять усиление далеко за пределы шкалы.
+    """
 
     changed = Signal(int)
 
     def __init__(self, label: str, minimum: int, maximum: int, value: int,
                  suffix: str = "", hint: str = "", step: int = 1,
+                 hard_min: int | None = None, hard_max: int | None = None,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.suffix = suffix
+        self.editable = hard_min is not None and hard_max is not None
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(5)
@@ -360,17 +367,35 @@ class SliderRow(QWidget):
         head.setContentsMargins(0, 0, 0, 0)
         head.addWidget(QLabel(label))
         head.addStretch(1)
-        self.value_label = QLabel(f"{value}{suffix}")
-        self.value_label.setObjectName("Value")
-        head.addWidget(self.value_label)
+
+        if self.editable:
+            self.spin = QDoubleSpinBox()
+            self.spin.setDecimals(0)
+            self.spin.setRange(float(hard_min), float(hard_max))
+            self.spin.setSingleStep(1.0)
+            self.spin.setSuffix(suffix)
+            self.spin.setValue(float(value))
+            self.spin.setFixedWidth(104)
+            self.spin.setAlignment(Qt.AlignRight)
+            self.spin.setToolTip(
+                f"Можно вписать значение вручную: от {hard_min} до {hard_max}"
+            )
+            self.spin.valueChanged.connect(self._on_spin)
+            head.addWidget(self.spin)
+            self.value_label = None
+        else:
+            self.spin = None
+            self.value_label = QLabel(f"{value}{suffix}")
+            self.value_label.setObjectName("Value")
+            head.addWidget(self.value_label)
         outer.addLayout(head)
 
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(minimum, maximum)
         self.slider.setSingleStep(step)
         self.slider.setPageStep(step * 5)
-        self.slider.setValue(value)
-        self.slider.valueChanged.connect(self._on_change)
+        self.slider.setValue(max(minimum, min(maximum, value)))
+        self.slider.valueChanged.connect(self._on_slider)
         outer.addWidget(self.slider)
 
         if hint:
@@ -379,23 +404,47 @@ class SliderRow(QWidget):
             note.setWordWrap(True)
             outer.addWidget(note)
 
-    def _on_change(self, value: int) -> None:
-        self.value_label.setText(f"{value}{self.suffix}")
+    # ---------------------------------------------------------- изменения
+    def _on_slider(self, value: int) -> None:
+        if self.spin is not None:
+            self.spin.blockSignals(True)
+            self.spin.setValue(float(value))
+            self.spin.blockSignals(False)
+        else:
+            self.value_label.setText(f"{value}{self.suffix}")
         self.changed.emit(value)
 
+    def _on_spin(self, value: float) -> None:
+        number = int(round(value))
+        self.slider.blockSignals(True)
+        self.slider.setValue(max(self.slider.minimum(),
+                                 min(self.slider.maximum(), number)))
+        self.slider.blockSignals(False)
+        self.changed.emit(number)
+
     def value(self) -> int:
+        if self.spin is not None:
+            return int(round(self.spin.value()))
         return self.slider.value()
 
     def set_value(self, value: int, silent: bool = False) -> None:
-        """silent=True — обновить ползунок, не поднимая сигнал изменения.
+        """silent=True — обновить элементы, не поднимая сигнал изменения.
 
         Нужно при смене профиля: значения расставляются программно.
         """
         if silent:
             self.slider.blockSignals(True)
-            self.slider.setValue(value)
+            self.slider.setValue(max(self.slider.minimum(),
+                                     min(self.slider.maximum(), value)))
             self.slider.blockSignals(False)
-            self.value_label.setText(f"{value}{self.suffix}")
+            if self.spin is not None:
+                self.spin.blockSignals(True)
+                self.spin.setValue(float(value))
+                self.spin.blockSignals(False)
+            elif self.value_label is not None:
+                self.value_label.setText(f"{value}{self.suffix}")
+        elif self.spin is not None:
+            self.spin.setValue(float(value))
         else:
             self.slider.setValue(value)
 

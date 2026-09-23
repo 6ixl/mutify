@@ -20,21 +20,30 @@ class MuteSchedule:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        # [начало, конец, перезапускать ли звук]
         self._spans: list[list[int]] = []
         self.total_muted = 0        # статистика для UI
         self.events = 0
 
-    def add(self, start: int, end: int) -> None:
+    def add(self, start: int, end: int, restart: bool = True) -> None:
+        """restart=True — новое слово, звук замены начинается заново.
+
+        restart=False — «мост» между двумя матами в быстрой речи: промежуток
+        глушится, но звук не сбрасывается.
+        """
         if end <= start:
             return
         with self._lock:
+            kind = 1 if restart else 0
             for span in self._spans:
                 # Повторная догадка модели про то же слово — просто продлеваем.
-                if abs(span[0] - start) < 1600 and start <= span[1]:
+                # Слово с мостом не сливаем: иначе потеряется перезапуск звука.
+                if span[2] == kind and abs(span[0] - start) < 1600 and start <= span[1]:
                     span[1] = max(span[1], end)
                     return
-            self._spans.append([start, end])
-            self.events += 1
+            self._spans.append([start, end, kind])
+            if restart:
+                self.events += 1
 
     def covers(self, pos: int, n: int) -> tuple[np.ndarray, list[int]] | None:
         """Маска заглушения для блока и позиции, где начинаются новые слова.
@@ -49,14 +58,15 @@ class MuteSchedule:
             mask = np.zeros(n, dtype=bool)
             starts: list[int] = []
             hit = False
-            for start, end in self._spans:
+            for span in self._spans:
+                start, end, restart = span[0], span[1], span[2]
                 if end <= pos or start >= pos + n:
                     continue
                 a = max(0, start - pos)
                 b = min(n, end - pos)
                 mask[a:b] = True
                 hit = True
-                if pos <= start < pos + n:
+                if restart and pos <= start < pos + n:
                     starts.append(int(start - pos))
             if not hit:
                 return None

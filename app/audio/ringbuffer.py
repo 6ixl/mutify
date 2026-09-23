@@ -26,6 +26,11 @@ class DelayRing:
         n = len(data)
         if n == 0:
             return
+        if n > self.capacity:
+            # Больше ёмкости за раз не бывает в работе, но подстрахуемся:
+            # оставляем самый свежий хвост, чтобы не уронить звуковой поток.
+            data = data[-self.capacity:]
+            n = self.capacity
         with self._lock:
             start = self.write_pos % self.capacity
             end = start + n

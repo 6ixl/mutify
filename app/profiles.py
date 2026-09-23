@@ -17,7 +17,7 @@ PROFILES_FILE = DATA_DIR / "profiles.json"
 # Какие поля попадают в профиль.
 MUTE_FIELDS = (
     "delay_ms", "pre_pad_ms", "post_pad_ms", "mode", "sound_path",
-    "sound_volume", "fade_ms",
+    "sound_volume", "fade_ms", "burst_ms",
 )
 AI_FIELDS = (
     "engine", "hop_ms", "window_ms", "skip_silence", "react_on_partial",
@@ -29,21 +29,21 @@ BUILTIN: dict[str, dict[str, Any]] = {
     "Стрим": {
         "hint": "Максимальная строгость: лучше лишний раз заглушить, чем пропустить.",
         "mute": {"delay_ms": 600, "pre_pad_ms": 160, "post_pad_ms": 260,
-                 "mode": "sound", "fade_ms": 15},
+                 "mode": "sound", "fade_ms": 15, "burst_ms": 900},
         "ai": {"hop_ms": 150, "window_ms": 1200, "react_on_partial": True, "confidence": 0.35,
                "fuzzy": True, "fuzzy_threshold": 0.78, "root_matching": True},
     },
     "Игра с друзьями": {
         "hint": "Баланс: разговор остаётся живым, мат режется надёжно.",
         "mute": {"delay_ms": 400, "pre_pad_ms": 120, "post_pad_ms": 180,
-                 "mode": "sound", "fade_ms": 15},
+                 "mode": "sound", "fade_ms": 15, "burst_ms": 700},
         "ai": {"hop_ms": 250, "window_ms": 1000, "react_on_partial": True, "confidence": 0.55,
                "fuzzy": True, "fuzzy_threshold": 0.82, "root_matching": True},
     },
     "Работа": {
         "hint": "Минимальная задержка и только уверенные срабатывания.",
         "mute": {"delay_ms": 300, "pre_pad_ms": 90, "post_pad_ms": 140,
-                 "mode": "silence", "fade_ms": 20},
+                 "mode": "silence", "fade_ms": 20, "burst_ms": 400},
         "ai": {"hop_ms": 300, "window_ms": 900, "react_on_partial": True, "confidence": 0.7,
                "fuzzy": False, "fuzzy_threshold": 0.88, "root_matching": True},
     },

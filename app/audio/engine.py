@@ -64,6 +64,7 @@ class AudioEngine(QObject):
         self._stt_offset = 0
         self.missed = 0
         self._gate_gain = 1.0
+        self._last_mute_end = 0      # конец прошлого заглушения — для склейки серий
         self._last_level_emit = 0.0
         self._last_stats_emit = 0.0
         self._muting_now = False
@@ -84,6 +85,7 @@ class AudioEngine(QObject):
         self._fade_tail = np.zeros(0, dtype=np.float32)
         self._stt_offset = 0
         self.missed = 0
+        self._last_mute_end = 0
 
         try:
             self._stt = factory.create(self.cfg.ai, sr)
@@ -350,9 +352,18 @@ class AudioEngine(QObject):
                 self._handled_words.clear()
 
             # Время модели переводим в позицию потока: у неё своя шкала.
-            start = int(word.start * sr) + self._stt_offset - pre
+            start = max(0, int(word.start * sr) + self._stt_offset - pre)
             end = int(word.end * sr) + self._stt_offset + post
-            self._schedule.add(max(0, start), end)
+
+            # Быстрая речь: модель успевает разобрать не каждое слово в потоке
+            # мата. Если новый мат идёт вплотную к прошлому, глушим и промежуток
+            # между ними — иначе в эфир просочится то, что модель не расслышала.
+            burst = int(sr * self.cfg.mute.burst_ms / 1000)
+            if 0 < self._last_mute_end <= start <= self._last_mute_end + burst:
+                self._schedule.add(self._last_mute_end, start, restart=False)
+            self._last_mute_end = max(self._last_mute_end, end)
+
+            self._schedule.add(start, end)
 
             # Если этот кусок уже ушёл в эфир, заглушать нечего — честно
             # показываем это в ленте, чтобы было видно, что буфер мал.

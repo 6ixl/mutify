@@ -155,13 +155,18 @@ class AudioPage(QWidget):
 
         self.in_gain = SliderRow(
             "Усиление микрофона", -20, 20, int(cfg.input_gain_db), " дБ",
-            "Поднимите, если модель плохо слышит тихий микрофон.",
+            "Поднимите, если модель плохо слышит тихий микрофон. "
+            "Значение можно вписать вручную, ползунок показывает обычный диапазон. "
+            "Выше +20 дБ следите за перегрузкой — звук начнёт хрипеть.",
+            hard_min=-90, hard_max=90,
         )
         self.in_gain.changed.connect(lambda v: self._set("input_gain_db", float(v)))
         box.addWidget(self.in_gain)
 
         self.out_gain = SliderRow(
             "Громкость на выходе", -20, 20, int(cfg.output_gain_db), " дБ",
+            "Тоже вводится вручную, если нужно больше шкалы.",
+            hard_min=-90, hard_max=90,
         )
         self.out_gain.changed.connect(lambda v: self._set("output_gain_db", float(v)))
         box.addWidget(self.out_gain)
