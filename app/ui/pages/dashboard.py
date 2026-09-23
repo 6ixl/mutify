@@ -429,9 +429,16 @@ class DashboardPage(QWidget):
         if not engine.lags_ms:
             self.health_badge.set_state("нет данных", theme.TEXT_MUTED)
             return
-        average = sum(engine.lags_ms) / len(engine.lags_ms)
+        # Берём свежие замеры: старые, накопленные до подстройки, врут.
+        recent = list(engine.lags_ms)[-20:]
+        average = sum(recent) / len(recent)
         load = engine.cpu_load * 100
-        text = f"опоздание {average:.0f} мс · нагрузка {load:.0f}%"
+        text = f"опоздание {average:.0f} мс · нагрузка модели {load:.0f}%"
+        if load > 100:
+            self.health_badge.set_state(
+                f"модель не успевает: {load:.0f}% — выберите полегче", theme.DANGER
+            )
+            return
         if engine.missed:
             text += f" · не успели {engine.missed}"
             color = theme.DANGER

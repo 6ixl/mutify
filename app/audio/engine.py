@@ -71,6 +71,8 @@ class AudioEngine(QObject):
         self.cpu_load = 0.0          # доля времени, которую занимает распознавание
         # Подстройка глубины анализа под свободные ресурсы машины.
         self.system_load = None
+        self._slow_since = 0.0       # с какого момента модель не успевает
+        self._slow_warned = False
         self.tuned_hop = 0
         self.tuned_window = 0
         self.tuned_alternatives = 0
@@ -98,6 +100,8 @@ class AudioEngine(QObject):
         self._last_mute_end = 0
         self.lags_ms.clear()
         self.cpu_load = 0.0
+        self._slow_since = 0.0
+        self._slow_warned = False
         self.tuned_hop, self.tuned_window, self.tuned_alternatives = (
             factory.mode_values(self.cfg.ai)
         )
@@ -354,6 +358,7 @@ class AudioEngine(QObject):
                 self.cpu_load = self.cpu_load * 0.9 + share * 0.1
 
             self._autotune()
+            self._watch_speed()
 
             for result in results:
                 self._handle_result(result)
@@ -432,6 +437,28 @@ class AudioEngine(QObject):
                 self.profanity.emit(words[-1], "partial")
 
     # ----------------------------------------------------- применение настроек
+    def _watch_speed(self) -> None:
+        """Если модель стабильно не успевает, говорим об этом прямо.
+
+        Иначе отставание копится до секунд, и мат уходит в эфир раньше, чем
+        его распознали, — а со стороны кажется, что фильтр просто сломан.
+        """
+        now = time.monotonic()
+        if self.cpu_load <= 1.0:
+            self._slow_since = 0.0
+            return
+        if not self._slow_since:
+            self._slow_since = now
+            return
+        if now - self._slow_since > 6.0 and not self._slow_warned:
+            self._slow_warned = True
+            self.status.emit(
+                "Модель не успевает за речью (нагрузка {:.0f}%) — мат будет "
+                "проходить. Выберите режим полегче, малую модель или Whisper "
+                "на видеокарте.".format(self.cpu_load * 100),
+                False,
+            )
+
     def _autotune(self) -> None:
         """Пока машина свободна — слушаем речь чаще и внимательнее.
 
@@ -450,18 +477,27 @@ class AudioEngine(QObject):
 
         busy = max(self.system_load.measure())
         target = max(20, min(95, ai.target_load))
+        # Главный сигнал — успевает ли сама модель. Общая загрузка процессора
+        # тут обманчива: распознавание занимает одно ядро из многих, и машина
+        # выглядит «свободной», даже когда модель отстаёт в разы.
+        own = self.cpu_load
 
         hop, window, alternatives = (
             self.tuned_hop, self.tuned_window, self.tuned_alternatives
         )
-        if busy < target - 15:
+        if own > 1.0:
+            # не успевает совсем — отступаем сразу на несколько шагов
+            hop = min(ai.max_hop_ms, hop + 100)
+            window = max(700, window - 300)
+            alternatives = max(1, alternatives - 3)
+        elif own > 0.7 or busy > target:
+            hop = min(ai.max_hop_ms, hop + 25)
+            window = max(700, window - 100)
+            alternatives = max(1, alternatives - 1)
+        elif own < 0.45 and busy < target - 15:
             hop = max(ai.min_hop_ms, hop - 25)
             window = min(ai.max_window_ms, window + 100)
             alternatives = min(ai.max_alternatives, alternatives + 1)
-        elif busy > target:
-            hop = min(ai.max_hop_ms, hop + 25)
-            window = max(700, window - 100)
-            alternatives = max(2, alternatives - 1)
         else:
             return
 

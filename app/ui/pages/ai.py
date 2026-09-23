@@ -493,6 +493,11 @@ class AIPage(QWidget):
         else:
             self.ctx.cfg.ai.engine = "vosk"
             self.ctx.cfg.ai.model_path = str(MODELS_DIR / key)
+            if entry.get("heavy"):
+                self.ctx.notify(
+                    "Большая модель тяжёлая: в живом режиме может не успевать, "
+                    "и мат будет проходить. Для мута лучше Whisper.", False
+                )
         self.ctx.save_and_apply()
         self.ctx.reload_settings_pages()
         if self.ctx.engine.running:
