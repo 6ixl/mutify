@@ -17,7 +17,7 @@ PROFILES_FILE = DATA_DIR / "profiles.json"
 # Какие поля попадают в профиль.
 MUTE_FIELDS = (
     "delay_ms", "pre_pad_ms", "post_pad_ms", "mode", "sound_path",
-    "sound_volume", "fade_ms", "burst_ms",
+    "sound_volume", "fade_ms", "burst_ms", "full_sound",
 )
 AI_FIELDS = (
     "engine", "hop_ms", "window_ms", "skip_silence", "react_on_partial",

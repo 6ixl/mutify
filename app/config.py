@@ -35,6 +35,7 @@ class MuteConfig:
     sound_volume: float = 0.8
     fade_ms: int = 15                    # сглаживание на входе/выходе из мута, убирает щелчки
     burst_ms: int = 700                  # склеивать маты, идущие подряд
+    full_sound: bool = True              # доигрывать звук замены целиком
     hotkey_panic: bool = True            # мгновенный ручной мут по кнопке
 
 
@@ -123,6 +124,19 @@ class AppConfig:
             for key, value in values.items():
                 if hasattr(target, key):
                     setattr(target, key, value)
+
+    def reset(self) -> None:
+        """Вернуть все настройки к заводским.
+
+        Объект не пересоздаётся: на него уже ссылаются движок и страницы,
+        поэтому секции заменяются на месте.
+        """
+        self.audio = AudioConfig()
+        self.mute = MuteConfig()
+        self.ai = AIConfig()
+        self.ui = UIConfig()
+        self.general = GeneralConfig()
+        self.save()
 
     def save(self) -> None:
         CONFIG_FILE.write_text(

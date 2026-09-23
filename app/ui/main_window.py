@@ -349,6 +349,25 @@ class MainWindow(QWidget):
         self.matcher.refresh()
         self.engine.reload_sound()
 
+    def reset_settings(self) -> None:
+        """Сброс всех настроек к заводским, с переподбором устройств."""
+        was_running = self.engine.running
+        if was_running:
+            self.engine.stop()
+
+        self.cfg.reset()
+        self.cfg.ai.model_path = VoskSTT.resolve_model_path("")
+        devices.autoconfigure(self.cfg.audio)
+        self.cfg.save()
+
+        self.matcher.refresh()
+        self.engine.reload_sound()
+        self.apply_hotkeys()
+        self.reload_settings_pages()
+        self.pages["dashboard"].refresh()
+        self.pages["general"].refresh()
+        self.notify("Настройки сброшены к заводским", True)
+
     def reload_settings_pages(self) -> None:
         """Обновить страницы после смены профиля: ползунки должны показать новые значения."""
         for key in ("sounds", "ai", "audio"):

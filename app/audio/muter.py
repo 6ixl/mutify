@@ -2,12 +2,17 @@
 """Расписание заглушений и источник подменного звука."""
 from __future__ import annotations
 
+import random
 import threading
+from collections import deque
 from pathlib import Path
 
 import numpy as np
 
 from app.config import MuteConfig
+
+AUDIO_EXTENSIONS = {".wav", ".mp3", ".ogg", ".flac", ".m4a", ".aac", ".opus"}
+DECODED_MARK = ".decoded.wav"
 
 
 class MuteSchedule:
@@ -79,36 +84,93 @@ class MuteSchedule:
 
 
 class ReplacementSound:
-    """Звук, которым подменяется мат. Свой файл, встроенный бип или тишина."""
+    """Звук, которым подменяется мат.
+
+    Это может быть один файл, встроенный сигнал, тишина или целая библиотека —
+    тогда на каждый мат берётся случайный звук из неё.
+    """
 
     def __init__(self, samplerate: int) -> None:
         self.samplerate = samplerate
+        self._clips: list[np.ndarray] = []
         self._data = np.zeros(0, dtype=np.float32)
         self._phase = 0
+        self._queue: deque = deque()          # какие звуки прозвучат дальше
+        self._last_index = -1
+        self._lock = threading.Lock()
         self.source_name = "тишина"
         self.how = ""
         self.error = ""
+        self.errors: list[str] = []
 
+    # ------------------------------------------------------------ загрузка
     def load(self, cfg: MuteConfig) -> None:
         self._phase = 0
+        self._queue.clear()
+        self._last_index = -1
         self.error = ""
+        self.errors = []
+        self.how = ""
+
         if cfg.mode == "silence":
+            self._clips = []
             self._data = np.zeros(0, dtype=np.float32)
             self.source_name = "тишина"
             return
+
+        if cfg.mode == "random":
+            self._load_library()
+            return
+
         if cfg.mode == "beep" or not cfg.sound_path:
             self._data = self._make_beep()
+            self._clips = [self._data]
             self.source_name = "встроенный сигнал"
             return
+
         try:
             self._data, how = self._load_file(Path(cfg.sound_path))
+            self._clips = [self._data]
             self.source_name = Path(cfg.sound_path).name
             self.how = how
         except Exception as exc:
             # Молча подменять бипом нельзя: человек будет думать, что поставил свой звук.
             self._data = self._make_beep()
+            self._clips = [self._data]
             self.source_name = "встроенный сигнал"
             self.error = str(exc)
+
+    def _load_library(self) -> None:
+        """Все звуки из папки: на каждый мат будет выбираться случайный."""
+        from app.paths import SOUNDS_DIR
+
+        clips: list[np.ndarray] = []
+        names: list[str] = []
+        for path in sorted(SOUNDS_DIR.iterdir()) if SOUNDS_DIR.exists() else []:
+            if not path.is_file() or path.suffix.lower() not in AUDIO_EXTENSIONS:
+                continue
+            if path.name.endswith(DECODED_MARK):
+                continue          # это кэш уже загруженного файла
+            try:
+                data, _ = self._load_file(path)
+            except Exception as exc:
+                self.errors.append(f"{path.name}: {exc}")
+                continue
+            if len(data):
+                clips.append(data)
+                names.append(path.name)
+
+        if not clips:
+            self._data = self._make_beep()
+            self._clips = [self._data]
+            self.source_name = "встроенный сигнал"
+            self.error = "в папке нет звуков, которые удалось прочитать"
+            return
+
+        self._clips = clips
+        self._data = clips[0]
+        self.source_name = f"случайный из {len(clips)}"
+        self.how = ", ".join(names[:4]) + ("..." if len(names) > 4 else "")
 
     def _make_beep(self) -> np.ndarray:
         dur = 0.25
@@ -122,6 +184,35 @@ class ReplacementSound:
 
         return load_audio(path, self.samplerate)
 
+    # ------------------------------------------------------------ выбор
+    def plan_next(self) -> int:
+        """Заранее выбрать звук для следующего мата и вернуть его длину.
+
+        Выбор делается здесь, а не в момент воспроизведения: движку нужно
+        знать длину заранее, чтобы растянуть заглушение на весь звук.
+        """
+        with self._lock:
+            if not self._clips:
+                return 0
+            index = 0
+            if len(self._clips) > 1:
+                index = random.randrange(len(self._clips))
+                if index == self._last_index:      # два одинаковых подряд скучно
+                    index = (index + 1) % len(self._clips)
+            self._last_index = index
+            self._queue.append(index)
+            return len(self._clips[index])
+
+    @property
+    def length(self) -> int:
+        """Длина текущего звука в сэмплах."""
+        return len(self._data)
+
+    @property
+    def count(self) -> int:
+        return len(self._clips)
+
+    # ------------------------------------------------------------ звучание
     def take(self, n: int, volume: float) -> np.ndarray:
         """Следующие n сэмплов подменного звука, зациклено."""
         if len(self._data) == 0:
@@ -156,4 +247,10 @@ class ReplacementSound:
         return out
 
     def rewind(self) -> None:
+        """Начать звук сначала, взяв следующий запланированный клип."""
+        with self._lock:
+            if self._queue:
+                index = self._queue.popleft()
+                if 0 <= index < len(self._clips):
+                    self._data = self._clips[index]
         self._phase = 0

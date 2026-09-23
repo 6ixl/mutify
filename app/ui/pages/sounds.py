@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 
 from app.paths import SOUNDS_DIR
 from app.ui import theme
-from app.ui.widgets import Card, SliderRow
+from app.ui.widgets import Card, Row, SliderRow, ToggleSwitch
 
 AUDIO_EXT = {".wav", ".mp3", ".ogg", ".flac", ".m4a"}
 
@@ -51,7 +51,10 @@ class SoundsPage(QWidget):
 
         self.mode_group = QButtonGroup(self)
         modes = (
-            ("sound", "Свой звук", "Файл из библиотеки ниже. Зацикливается на время мата."),
+            ("sound", "Свой звук", "Выбранный файл из библиотеки ниже."),
+            ("random", "Случайный из библиотеки",
+             "На каждый мат берётся случайный звук из папки со звуками — "
+             "два раза подряд один и тот же не выпадет."),
             ("beep", "Встроенный сигнал", "Классический цензурный «бип» 950 Гц."),
             ("silence", "Тишина", "Просто вырезать звук без подмены."),
         )
@@ -79,6 +82,16 @@ class SoundsPage(QWidget):
         )
         self.volume.changed.connect(self._set_volume)
         box.addWidget(self.volume)
+
+        self.full_sound = ToggleSwitch()
+        self.full_sound.setChecked(cfg.full_sound)
+        self.full_sound.toggled.connect(lambda v: self._set("full_sound", v))
+        box.addWidget(
+            Row("Проигрывать звук целиком", self.full_sound,
+                "Заглушение тянется до конца звука, даже если слово короче. "
+                "Следующий мат всё равно оборвёт его и начнёт свой звук. "
+                "Выключите, если длинный звук съедает нормальную речь.")
+        )
         box.addStretch(1)
         return card
 
@@ -186,7 +199,11 @@ class SoundsPage(QWidget):
         """Проверяем, что файл действительно читается, и говорим об этом вслух."""
         if not hasattr(self, "status_label"):
             return
-        if self.ctx.cfg.mute.mode != "sound" or not path:
+        mode = self.ctx.cfg.mute.mode
+        if mode not in ("sound", "random"):
+            self.status_label.setText("")
+            return
+        if mode == "sound" and not path:
             self.status_label.setText("")
             return
 
@@ -202,6 +219,14 @@ class SoundsPage(QWidget):
                 ))
             )
             self.status_label.setStyleSheet(f"color: {theme.DANGER}; font-size: 11px;")
+        elif self.ctx.cfg.mute.mode == "random":
+            parts = [f"В библиотеке {probe.count} звуков, на каждый мат берётся случайный"]
+            if probe.errors:
+                parts.append("не прочитаны: " + "; ".join(probe.errors[:2]))
+            self.status_label.setText("\n".join(parts))
+            self.status_label.setStyleSheet(
+                f"color: {theme.OK if not probe.errors else theme.WARN}; font-size: 11px;"
+            )
         else:
             seconds = len(probe._data) / max(1, self.ctx.cfg.audio.samplerate)
             how = f" (через {probe.how})" if probe.how not in ("libsndfile", "") else ""
@@ -219,7 +244,11 @@ class SoundsPage(QWidget):
         self.post.set_value(cfg.post_pad_ms, silent=True)
         self.fade.set_value(cfg.fade_ms, silent=True)
         self.burst.set_value(cfg.burst_ms, silent=True)
-        labels = {"sound": "Свой звук", "beep": "Встроенный сигнал", "silence": "Тишина"}
+        self.full_sound.blockSignals(True)
+        self.full_sound.setChecked(cfg.full_sound)
+        self.full_sound.blockSignals(False)
+        labels = {"sound": "Свой звук", "random": "Случайный из библиотеки",
+                  "beep": "Встроенный сигнал", "silence": "Тишина"}
         target = labels.get(cfg.mode)
         for button in self.mode_group.buttons():
             button.blockSignals(True)

@@ -355,6 +355,15 @@ class AudioEngine(QObject):
             start = max(0, int(word.start * sr) + self._stt_offset - pre)
             end = int(word.end * sr) + self._stt_offset + post
 
+            # Звук для этого слова выбирается заранее: в случайном режиме нужно
+            # знать, какой именно клип прозвучит, чтобы растянуть заглушение
+            # ровно на его длину.
+            if self._sound is not None and self.cfg.mute.mode != "silence":
+                planned = self._sound.plan_next()
+                if self.cfg.mute.full_sound and planned:
+                    fade = int(sr * self.cfg.mute.fade_ms / 1000)
+                    end = max(end, start + planned + fade)
+
             # Быстрая речь: модель успевает разобрать не каждое слово в потоке
             # мата. Если новый мат идёт вплотную к прошлому, глушим и промежуток
             # между ними — иначе в эфир просочится то, что модель не расслышала.
