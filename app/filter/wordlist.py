@@ -29,12 +29,35 @@ class WordList:
             raw = json.loads(WORDS_FILE.read_text(encoding="utf-8"))
         except (ValueError, OSError):
             return cls()
-        return cls(
+        words = cls(
             roots=raw.get("roots", list(default_words.ROOTS)),
             exact=raw.get("exact", list(default_words.EXACT)),
             allow=raw.get("allow", list(default_words.ALLOW)),
             disabled=raw.get("disabled", []),
         )
+        words._migrate()
+        return words
+
+    # Корни, которые оказались опасными и цепляли обычные слова.
+    RETIRED_ROOTS = ("шпили",)
+
+    def _migrate(self) -> None:
+        """Подтянуть сохранённый словарь к текущему стандартному.
+
+        Иначе неудачный корень или недостающее исключение остались бы у тех,
+        кто уже пользовался приложением.
+        """
+        changed = False
+        for root in self.RETIRED_ROOTS:
+            if root in self.roots:
+                self.roots.remove(root)
+                changed = True
+        for word in default_words.ALLOW:
+            if word not in self.allow:
+                self.allow.append(word)
+                changed = True
+        if changed:
+            self.save()
 
     def save(self) -> None:
         WORDS_FILE.write_text(

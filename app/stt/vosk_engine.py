@@ -137,6 +137,18 @@ class VoskSTT(BaseSTT):
         self._fed = 0
         self._seen.clear()
 
+    def retune(self, hop_ms: int, window_ms: int, alternatives: int) -> None:
+        """Сменить глубину анализа на ходу, не перезапуская мут."""
+        self.hop = max(1, int(self.samplerate * hop_ms / 1000))
+        self.window = max(1, int(self.samplerate * window_ms / 1000))
+        alternatives = max(0, int(alternatives))
+        if alternatives != self.alternatives and self._rec is not None:
+            self.alternatives = alternatives
+            try:
+                self._rec.SetMaxAlternatives(alternatives if alternatives > 1 else 0)
+            except Exception:
+                pass
+
     def feed(self, pcm: bytes) -> list[STTResult]:
         if self._rec is None:
             return []

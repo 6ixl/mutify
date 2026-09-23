@@ -147,6 +147,30 @@ class AIPage(QWidget):
         )
         box = card.body()
 
+        self.adaptive = ToggleSwitch()
+        self.adaptive.setChecked(ai.adaptive)
+        self.adaptive.toggled.connect(self._toggle_adaptive)
+        box.addWidget(
+            Row("Использовать свободные ресурсы", self.adaptive,
+                "Пока компьютер не занят, модель слушает чаще и разбирает больше "
+                "вариантов — мата проскакивает меньше. Как только запустите игру "
+                "или запись, приложение само отступит.")
+        )
+
+        self.target_load = SliderRow(
+            "До какой загрузки разгоняться", 20, 95, ai.target_load, " %",
+            "Считается загрузка всего компьютера, а не только этой программы. "
+            "70% — разумный предел: игре останется запас.",
+            step=5,
+        )
+        self.target_load.changed.connect(lambda v: self._set("target_load", v))
+        box.addWidget(self.target_load)
+
+        self.tuning_badge = Badge()
+        badge_line = FlowLayout(spacing=8)
+        badge_line.addWidget(self.tuning_badge)
+        box.addLayout(badge_line)
+
         self.hop = SliderRow(
             "Шаг проверки", 100, 600, ai.hop_ms, " мс",
             "Как часто модель перепроверяет речь. Меньше шаг — быстрее реакция "
@@ -333,6 +357,10 @@ class AIPage(QWidget):
         self.threads.set_value(ai.max_cpu_threads, silent=True)
         self.alternatives.set_value(ai.alternatives, silent=True)
         self.silence.set_value(int(ai.silence_level_db), silent=True)
+        self.target_load.set_value(ai.target_load, silent=True)
+        self.adaptive.blockSignals(True)
+        self.adaptive.setChecked(ai.adaptive)
+        self.adaptive.blockSignals(False)
         self.confidence.set_value(int(ai.confidence * 100), silent=True)
         self.fuzzy_threshold.set_value(int(ai.fuzzy_threshold * 100), silent=True)
         self.whisper_window.set_value(ai.whisper_window_ms, silent=True)
@@ -355,6 +383,30 @@ class AIPage(QWidget):
     def _set(self, field: str, value) -> None:
         setattr(self.ctx.cfg.ai, field, value)
         self.ctx.save_and_apply()
+
+    def _toggle_adaptive(self, enabled: bool) -> None:
+        self._set("adaptive", enabled)
+        self.target_load.setEnabled(enabled)
+        for widget in (self.hop, self.window, self.alternatives):
+            widget.setEnabled(not enabled)
+        self._update_tuning_badge()
+
+    def _update_tuning_badge(self) -> None:
+        """Показывает, с какой глубиной модель работает прямо сейчас."""
+        ai = self.ctx.cfg.ai
+        if not ai.adaptive:
+            self.tuning_badge.set_state("ручные настройки", theme.TEXT_MUTED)
+            return
+        engine = self.ctx.engine
+        if not engine.running or not engine.tuned_hop:
+            self.tuning_badge.set_state("подстроится при запуске мута", theme.TEXT_MUTED)
+            return
+        self.tuning_badge.set_state(
+            "сейчас: шаг {} мс, окно {} мс, вариантов {}".format(
+                engine.tuned_hop, engine.tuned_window, engine.tuned_alternatives
+            ),
+            theme.OK,
+        )
 
     def _toggle_fuzzy(self, enabled: bool) -> None:
         self._set("fuzzy", enabled)
@@ -413,6 +465,11 @@ class AIPage(QWidget):
             badge.set_state(
                 f"{name}: {info}", theme.OK if ok else theme.WARN
             )
+
+        self._update_tuning_badge()
+        self.target_load.setEnabled(self.ctx.cfg.ai.adaptive)
+        for widget in (self.hop, self.window, self.alternatives):
+            widget.setEnabled(not self.ctx.cfg.ai.adaptive)
 
         path = self.ctx.cfg.ai.model_path or VoskSTT.autodetect_model()
         if path:

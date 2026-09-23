@@ -69,6 +69,12 @@ class AudioEngine(QObject):
         # На сколько детекция отставала от эфира: по этим цифрам подбирается задержка.
         self.lags_ms: deque = deque(maxlen=200)
         self.cpu_load = 0.0          # доля времени, которую занимает распознавание
+        # Подстройка глубины анализа под свободные ресурсы машины.
+        self.system_load = None
+        self.tuned_hop = 0
+        self.tuned_window = 0
+        self.tuned_alternatives = 0
+        self._last_tune = 0.0
         self._last_level_emit = 0.0
         self._last_stats_emit = 0.0
         self._muting_now = False
@@ -92,6 +98,14 @@ class AudioEngine(QObject):
         self._last_mute_end = 0
         self.lags_ms.clear()
         self.cpu_load = 0.0
+        self.tuned_hop = self.cfg.ai.hop_ms
+        self.tuned_window = self.cfg.ai.window_ms
+        self.tuned_alternatives = self.cfg.ai.alternatives
+        self._last_tune = 0.0
+        if self.cfg.ai.adaptive and self.system_load is None:
+            from app.system.load import SystemLoad
+
+            self.system_load = SystemLoad()
 
         try:
             self._stt = factory.create(self.cfg.ai, sr)
@@ -339,6 +353,8 @@ class AudioEngine(QObject):
                 share = spent / audio_seconds
                 self.cpu_load = self.cpu_load * 0.9 + share * 0.1
 
+            self._autotune()
+
             for result in results:
                 self._handle_result(result)
 
@@ -416,6 +432,51 @@ class AudioEngine(QObject):
                 self.profanity.emit(words[-1], "partial")
 
     # ----------------------------------------------------- применение настроек
+    def _autotune(self) -> None:
+        """Пока машина свободна — слушаем речь чаще и внимательнее.
+
+        Шаг проверки уменьшается, окно анализа и число разбираемых вариантов
+        растут. Как только компьютер занят чем-то ещё, всё возвращается обратно:
+        мут не должен мешать игре или записи.
+        """
+        ai = self.cfg.ai
+        if not ai.adaptive or self.system_load is None or ai.engine != "vosk":
+            return
+
+        now = time.monotonic()
+        if now - self._last_tune < 2.0:
+            return
+        self._last_tune = now
+
+        busy = max(self.system_load.measure())
+        target = max(20, min(95, ai.target_load))
+
+        hop, window, alternatives = (
+            self.tuned_hop, self.tuned_window, self.tuned_alternatives
+        )
+        if busy < target - 15:
+            hop = max(ai.min_hop_ms, hop - 25)
+            window = min(ai.max_window_ms, window + 100)
+            alternatives = min(ai.max_alternatives, alternatives + 1)
+        elif busy > target:
+            hop = min(ai.max_hop_ms, hop + 25)
+            window = max(ai.window_ms, window - 100)
+            alternatives = max(2, alternatives - 1)
+        else:
+            return
+
+        if (hop, window, alternatives) == (
+            self.tuned_hop, self.tuned_window, self.tuned_alternatives
+        ):
+            return
+        self.tuned_hop, self.tuned_window, self.tuned_alternatives = (
+            hop, window, alternatives
+        )
+        try:
+            self._stt.retune(hop, window, alternatives)
+        except AttributeError:
+            pass        # движок не умеет перестраиваться на ходу
+
     def suggest_delay_ms(self) -> int | None:
         """Какая задержка нужна, чтобы успевать за детекцией.
 
