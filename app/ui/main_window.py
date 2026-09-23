@@ -100,8 +100,11 @@ class MainWindow(QWidget):
 
         # ---- состояние приложения ----
         self.cfg = AppConfig.load()
-        if not self.cfg.ai.model_path:
-            self.cfg.ai.model_path = VoskSTT.autodetect_model()
+        # Путь мог остаться от прошлой установки или от перенесённой папки.
+        resolved = VoskSTT.resolve_model_path(self.cfg.ai.model_path)
+        if resolved != self.cfg.ai.model_path:
+            self.cfg.ai.model_path = resolved
+            self.cfg.save()
 
         # Устройства подбираются сами: выбирать руками ничего не нужно.
         self.auto_devices = devices.autoconfigure(self.cfg.audio)

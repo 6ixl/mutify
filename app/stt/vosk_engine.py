@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import numpy as np
 
@@ -59,6 +60,29 @@ class VoskSTT(BaseSTT):
         return ""
 
     @staticmethod
+    def _looks_like_model(path: str) -> bool:
+        """Похоже ли на распакованную модель Vosk: внутри должна быть папка am."""
+        try:
+            folder = Path(path)
+            return folder.is_dir() and (folder / "am").exists()
+        except OSError:
+            return False
+
+    @staticmethod
+    def resolve_model_path(saved: str = "") -> str:
+        """Какую модель использовать: своя папка models/ важнее сохранённого пути.
+
+        Иначе установленная программа продолжала бы тянуть модель из папки, где
+        её когда-то собирали, и ломалась, стоит той папке исчезнуть.
+        """
+        own = VoskSTT.autodetect_model()
+        if own:
+            return own
+        if saved and VoskSTT._looks_like_model(saved):
+            return saved
+        return ""
+
+    @staticmethod
     def is_available() -> tuple[bool, str]:
         try:
             import vosk  # noqa: F401
@@ -66,7 +90,7 @@ class VoskSTT(BaseSTT):
             return False, "пакет vosk не установлен (pip install vosk)"
         path = VoskSTT.autodetect_model()
         if not path:
-            return False, "модель не найдена — распакуйте её в папку models/"
+            return False, "модель не найдена — нажмите «Скачать модель»"
         return True, os.path.basename(path)
 
     # ---------- жизненный цикл ----------
@@ -74,9 +98,26 @@ class VoskSTT(BaseSTT):
         import vosk
 
         vosk.SetLogLevel(-1)
+
+        # Папку могли перенести или удалить — тогда ищем модель заново.
+        resolved = self.resolve_model_path(self.model_path)
+        if resolved:
+            self.model_path = resolved
         if not self.model_path:
-            raise RuntimeError("Не указана папка модели Vosk")
-        self._model = vosk.Model(self.model_path)
+            raise RuntimeError(
+                "Модель не найдена. Откройте «Модель ИИ» и нажмите «Скачать модель»"
+            )
+        if not self._looks_like_model(self.model_path):
+            raise RuntimeError(
+                "Папка модели повреждена или это не модель Vosk: " + self.model_path
+            )
+
+        try:
+            self._model = vosk.Model(self.model_path)
+        except Exception as exc:
+            raise RuntimeError(
+                "Не удалось загрузить модель из " + self.model_path + " (" + str(exc) + ")"
+            ) from exc
         self._rec = vosk.KaldiRecognizer(self._model, float(self.samplerate))
         self._rec.SetWords(True)
         self._buffer = np.zeros(0, dtype=np.int16)

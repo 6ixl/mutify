@@ -244,6 +244,12 @@ class DashboardPage(QWidget):
             self.ctx.cfg.save()
             self.ctx.notify("Подобрано автоматически — " + ", ".join(changed), True)
 
+        ready, info = self.ctx.model_state()
+        if not ready:
+            self.ctx.notify("Модель не готова: " + info, False)
+            self.ctx.go_to("ai")
+            return
+
         if self.ctx.cfg.audio.output_device is None:
             self.ctx.notify(
                 "Нет виртуального микрофона. Откройте «Аудио» и нажмите "
