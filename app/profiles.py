@@ -20,8 +20,9 @@ MUTE_FIELDS = (
     "sound_volume", "fade_ms",
 )
 AI_FIELDS = (
-    "engine", "chunk_ms", "react_on_partial", "confidence", "fuzzy",
-    "fuzzy_threshold", "root_matching", "whisper_model", "whisper_window_ms",
+    "engine", "hop_ms", "window_ms", "skip_silence", "react_on_partial",
+    "confidence", "fuzzy", "fuzzy_threshold", "root_matching",
+    "whisper_model", "whisper_window_ms",
 )
 
 BUILTIN: dict[str, dict[str, Any]] = {
@@ -29,21 +30,21 @@ BUILTIN: dict[str, dict[str, Any]] = {
         "hint": "Максимальная строгость: лучше лишний раз заглушить, чем пропустить.",
         "mute": {"delay_ms": 600, "pre_pad_ms": 160, "post_pad_ms": 260,
                  "mode": "sound", "fade_ms": 15},
-        "ai": {"chunk_ms": 64, "react_on_partial": True, "confidence": 0.35,
+        "ai": {"hop_ms": 150, "window_ms": 1200, "react_on_partial": True, "confidence": 0.35,
                "fuzzy": True, "fuzzy_threshold": 0.78, "root_matching": True},
     },
     "Игра с друзьями": {
         "hint": "Баланс: разговор остаётся живым, мат режется надёжно.",
         "mute": {"delay_ms": 400, "pre_pad_ms": 120, "post_pad_ms": 180,
                  "mode": "sound", "fade_ms": 15},
-        "ai": {"chunk_ms": 96, "react_on_partial": True, "confidence": 0.55,
+        "ai": {"hop_ms": 250, "window_ms": 1000, "react_on_partial": True, "confidence": 0.55,
                "fuzzy": True, "fuzzy_threshold": 0.82, "root_matching": True},
     },
     "Работа": {
         "hint": "Минимальная задержка и только уверенные срабатывания.",
         "mute": {"delay_ms": 300, "pre_pad_ms": 90, "post_pad_ms": 140,
                  "mode": "silence", "fade_ms": 20},
-        "ai": {"chunk_ms": 128, "react_on_partial": True, "confidence": 0.7,
+        "ai": {"hop_ms": 300, "window_ms": 900, "react_on_partial": True, "confidence": 0.7,
                "fuzzy": False, "fuzzy_threshold": 0.88, "root_matching": True},
     },
 }

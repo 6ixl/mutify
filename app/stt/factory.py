@@ -28,6 +28,9 @@ def create(cfg: AIConfig, samplerate: int) -> BaseSTT:
         model_path=cfg.model_path,
         threads=cfg.max_cpu_threads,
         react_on_partial=cfg.react_on_partial,
+        window_ms=cfg.window_ms,
+        hop_ms=cfg.hop_ms,
+        skip_silence=cfg.skip_silence,
     )
 
 

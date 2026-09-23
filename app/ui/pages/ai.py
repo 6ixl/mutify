@@ -133,18 +133,37 @@ class AIPage(QWidget):
         ai = self.ctx.cfg.ai
         card = Card(
             "Скорость проверки",
-            "Насколько мелкими порциями модель получает звук. "
-            "Меньше порция — быстрее реакция, выше нагрузка на процессор.",
+            "Модель слушает скользящим окном: каждые «шаг проверки» она заново "
+            "разбирает последние секунды речи. Поэтому мат находится сразу, "
+            "а не в конце фразы.",
         )
         box = card.body()
 
-        self.chunk = SliderRow(
-            "Порция звука", 32, 480, ai.chunk_ms, " мс",
-            "32-96 мс: мгновенная реакция. 200+ мс: экономия процессора, реакция медленнее.",
-            step=16,
+        self.hop = SliderRow(
+            "Шаг проверки", 100, 600, ai.hop_ms, " мс",
+            "Как часто модель перепроверяет речь. Меньше шаг — быстрее реакция "
+            "и выше нагрузка на процессор. 250 мс — хороший баланс.",
+            step=25,
         )
-        self.chunk.changed.connect(lambda v: self._set("chunk_ms", v))
-        box.addWidget(self.chunk)
+        self.hop.changed.connect(lambda v: self._set("hop_ms", v))
+        box.addWidget(self.hop)
+
+        self.window = SliderRow(
+            "Окно анализа", 600, 2500, ai.window_ms, " мс",
+            "Сколько последних секунд модель слушает за один проход. "
+            "Короткое окно быстрее, длинное точнее на смазанной речи.",
+            step=100,
+        )
+        self.window.changed.connect(lambda v: self._set("window_ms", v))
+        box.addWidget(self.window)
+
+        self.skip_silence = ToggleSwitch()
+        self.skip_silence.setChecked(ai.skip_silence)
+        self.skip_silence.toggled.connect(lambda v: self._set("skip_silence", v))
+        box.addWidget(
+            Row("Не слушать тишину", self.skip_silence,
+                "Пока вы молчите, модель не работает — заметно экономит процессор.")
+        )
 
         self.partial = ToggleSwitch()
         self.partial.setChecked(ai.react_on_partial)
@@ -153,8 +172,8 @@ class AIPage(QWidget):
             Row(
                 "Реагировать на промежуточный результат",
                 self.partial,
-                "Глушить, как только модель догадалась о слове, не дожидаясь конца фразы. "
-                "Это главный источник скорости — выключайте только при ложных срабатываниях.",
+                "Запасной путь: заглушить по первой догадке модели, если слово "
+                "не удалось привязать ко времени. Выключайте при ложных срабатываниях.",
             )
         )
 
@@ -264,12 +283,14 @@ class AIPage(QWidget):
     def reload_values(self) -> None:
         """Подтянуть значения из настроек — например, после смены профиля."""
         ai = self.ctx.cfg.ai
-        self.chunk.set_value(ai.chunk_ms, silent=True)
+        self.hop.set_value(ai.hop_ms, silent=True)
+        self.window.set_value(ai.window_ms, silent=True)
         self.threads.set_value(ai.max_cpu_threads, silent=True)
         self.confidence.set_value(int(ai.confidence * 100), silent=True)
         self.fuzzy_threshold.set_value(int(ai.fuzzy_threshold * 100), silent=True)
         self.whisper_window.set_value(ai.whisper_window_ms, silent=True)
         for toggle, value in ((self.partial, ai.react_on_partial),
+                              (self.skip_silence, ai.skip_silence),
                               (self.roots, ai.root_matching),
                               (self.fuzzy, ai.fuzzy)):
             toggle.blockSignals(True)

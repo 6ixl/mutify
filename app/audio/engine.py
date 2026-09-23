@@ -59,6 +59,10 @@ class AudioEngine(QObject):
         self._out_channels = 2
 
         self._fade_tail = np.zeros(0, dtype=np.float32)
+        # Сколько сэмплов модель не увидела: её шкала времени сдвинута на это
+        # число относительно позиции в кольцевом буфере.
+        self._stt_offset = 0
+        self.missed = 0
         self._last_level_emit = 0.0
         self._last_stats_emit = 0.0
         self._muting_now = False
@@ -77,6 +81,8 @@ class AudioEngine(QObject):
         self._sound.load(self.cfg.mute)
         self._handled_words.clear()
         self._fade_tail = np.zeros(0, dtype=np.float32)
+        self._stt_offset = 0
+        self.missed = 0
 
         try:
             self._stt = factory.create(self.cfg.ai, sr)
@@ -189,7 +195,9 @@ class AudioEngine(QObject):
         try:
             self._stt_queue.put_nowait(pcm)
         except queue.Full:
-            pass   # модель не успевает — лучше пропустить кусок, чем копить задержку
+            # Модель не успевает: кусок пропускаем, но помним, что её время
+            # теперь отстаёт от потока ровно на эти сэмплы.
+            self._stt_offset += frames
 
         now = time.monotonic()
         if now - self._last_level_emit > 0.05:
@@ -270,8 +278,6 @@ class AudioEngine(QObject):
 
     # ------------------------------------------------- поток распознавания
     def _stt_loop(self) -> None:
-        chunk_bytes = int(self.cfg.audio.samplerate * self.cfg.ai.chunk_ms / 1000) * 2
-        buffer = bytearray()
         while self.running:
             try:
                 pcm = self._stt_queue.get(timeout=0.2)
@@ -279,13 +285,8 @@ class AudioEngine(QObject):
                 continue
             if pcm is None:
                 break
-            buffer.extend(pcm)
-            if len(buffer) < chunk_bytes:
-                continue
-            payload = bytes(buffer)
-            buffer.clear()
             try:
-                results = self._stt.feed(payload)
+                results = self._stt.feed(pcm)
             except Exception as exc:
                 self.status.emit("Ошибка распознавания: {}".format(exc), False)
                 continue
@@ -315,10 +316,20 @@ class AudioEngine(QObject):
             self._handled_words.add(key)
             if len(self._handled_words) > 512:
                 self._handled_words.clear()
-            start = int(word.start * sr) - pre
-            end = int(word.end * sr) + post
+
+            # Время модели переводим в позицию потока: у неё своя шкала.
+            start = int(word.start * sr) + self._stt_offset - pre
+            end = int(word.end * sr) + self._stt_offset + post
             self._schedule.add(max(0, start), end)
-            self.profanity.emit(word.text, match.rule)
+
+            # Если этот кусок уже ушёл в эфир, заглушать нечего — честно
+            # показываем это в ленте, чтобы было видно, что буфер мал.
+            played = self._ring.read_pos if self._ring is not None else 0
+            if end <= played:
+                self.missed += 1
+                self.profanity.emit(word.text, "не успели: увеличьте задержку")
+            else:
+                self.profanity.emit(word.text, match.rule)
 
         # Модель дала промежуточный текст без таймингов, а мат уже слышен —
         # глушим от текущего момента, не дожидаясь точного времени слова.
