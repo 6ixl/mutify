@@ -173,14 +173,24 @@ class AudioPage(QWidget):
         box = card.body()
 
         self.in_gain = SliderRow(
-            "Усиление микрофона", -20, 20, int(cfg.input_gain_db), " дБ",
-            "Поднимите, если модель плохо слышит тихий микрофон. "
-            "Значение можно вписать вручную, ползунок показывает обычный диапазон. "
-            "Выше +20 дБ следите за перегрузкой — звук начнёт хрипеть.",
+            "Усиление микрофона в эфир", -20, 20, int(cfg.input_gain_db), " дБ",
+            "Влияет на то, как вас слышат собеседники. Усиливается весь сигнал "
+            "целиком, вместе с шумом микрофона и наводками — поэтому на больших "
+            "значениях в паузах появляется шипение даже без вашего голоса. "
+            "Чтобы модель лучше слышала тихую речь, это трогать не нужно: на "
+            "странице «Модель ИИ» есть «Подтягивать тихую речь», она усиливает "
+            "только копию для распознавания и на эфир не влияет.",
             hard_min=-90, hard_max=90,
         )
-        self.in_gain.changed.connect(lambda v: self._set("input_gain_db", float(v)))
+        self.in_gain.changed.connect(self._set_input_gain)
         box.addWidget(self.in_gain)
+
+        self.gain_note = QLabel()
+        self.gain_note.setObjectName("Hint")
+        self.gain_note.setWordWrap(True)
+        self.gain_note.setMinimumWidth(140)
+        box.addWidget(self.gain_note)
+        self._update_gain_note(cfg.input_gain_db)
 
         self.out_gain = SliderRow(
             "Громкость на выходе", -20, 20, int(cfg.output_gain_db), " дБ",
@@ -331,6 +341,27 @@ class AudioPage(QWidget):
         self.ctx.notify("Установка не удалась: " + message, False)
 
     # ------------------------------------------------------------ действия
+    def _set_input_gain(self, value: int) -> None:
+        self._set("input_gain_db", float(value))
+        self._update_gain_note(value)
+
+    def _update_gain_note(self, value: float) -> None:
+        """Честно предупреждаем, во сколько раз поднимется шум."""
+        if value <= 6:
+            self.gain_note.setText("")
+            return
+        times = 10 ** (value / 20)
+        text = f"Шум микрофона тоже станет громче в {times:.0f} раз."
+        if value >= 20:
+            text += (" На таких значениях шипение в паузах слышно почти всегда — "
+                     "включите шумоподавление ниже или убавьте усиление.")
+            color = theme.DANGER
+        else:
+            text += " Если в паузах появится шипение, включите шумоподавление ниже."
+            color = theme.WARN
+        self.gain_note.setText(text)
+        self.gain_note.setStyleSheet(f"color: {color}; font-size: 11px;")
+
     def reload_values(self) -> None:
         """Подтянуть значения из настроек — например, после смены профиля."""
         self.delay.set_value(self.ctx.cfg.mute.delay_ms, silent=True)
@@ -339,6 +370,7 @@ class AudioPage(QWidget):
         self.out_gain.set_value(int(self.ctx.cfg.audio.output_gain_db), silent=True)
         self.gate_threshold.set_value(int(self.ctx.cfg.audio.gate_threshold_db), silent=True)
         self.gate_release.set_value(self.ctx.cfg.audio.gate_release_ms, silent=True)
+        self._update_gain_note(self.ctx.cfg.audio.input_gain_db)
         self._update_delay_note(self.ctx.cfg.mute.delay_ms)
 
     def _auto_delay(self) -> None:
