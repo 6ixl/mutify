@@ -56,13 +56,17 @@ def mode_values(cfg: AIConfig) -> tuple[int, int, int]:
 
 def create(cfg: AIConfig, samplerate: int) -> BaseSTT:
     if cfg.engine == WhisperSTT.name:
+        hop_ms, _, _ = mode_values(cfg)
         return WhisperSTT(
             samplerate,
             model=cfg.whisper_model,
             device=cfg.whisper_device,
             compute=cfg.whisper_compute,
-            window_ms=cfg.whisper_window_ms,
+            window_ms=max(1000, cfg.whisper_window_ms),
             language=cfg.language,
+            hop_ms=max(200, hop_ms),
+            skip_silence=cfg.skip_silence,
+            silence_level_db=cfg.silence_level_db,
         )
     hop_ms, window_ms, alternatives = mode_values(cfg)
     return VoskSTT(

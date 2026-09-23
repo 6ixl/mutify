@@ -32,14 +32,14 @@ BUILTIN: dict[str, dict[str, Any]] = {
         "mute": {"delay_ms": 600, "pre_pad_ms": 160, "post_pad_ms": 260,
                  "mode": "sound", "fade_ms": 15, "burst_ms": 900, "burst_tail_ms": 500},
         "ai": {"hop_ms": 150, "window_ms": 1200, "react_on_partial": True, "confidence": 0.35,
-               "fuzzy": True, "fuzzy_threshold": 0.78, "root_matching": True},
+               "fuzzy": False, "fuzzy_threshold": 0.78, "root_matching": True},
     },
     "Игра с друзьями": {
         "hint": "Баланс: разговор остаётся живым, мат режется надёжно.",
         "mute": {"delay_ms": 400, "pre_pad_ms": 120, "post_pad_ms": 180,
                  "mode": "sound", "fade_ms": 15, "burst_ms": 700, "burst_tail_ms": 250},
         "ai": {"hop_ms": 250, "window_ms": 1000, "react_on_partial": True, "confidence": 0.55,
-               "fuzzy": True, "fuzzy_threshold": 0.82, "root_matching": True},
+               "fuzzy": False, "fuzzy_threshold": 0.82, "root_matching": True},
     },
     "Работа": {
         "hint": "Минимальная задержка и только уверенные срабатывания.",

@@ -52,20 +52,6 @@ class VoskSTT(BaseSTT):
 
     # ---------- поиск модели ----------
     @staticmethod
-    def autodetect_model() -> str:
-        """Ищет распакованную модель Vosk в папке models/."""
-        if not MODELS_DIR.exists():
-            return ""
-        for child in sorted(MODELS_DIR.iterdir()):
-            if child.is_dir() and (child / "am").exists():
-                return str(child)
-            if child.is_dir():
-                for sub in child.iterdir():
-                    if sub.is_dir() and (sub / "am").exists():
-                        return str(sub)
-        return ""
-
-    @staticmethod
     def _looks_like_model(path: str) -> bool:
         """Похоже ли на распакованную модель Vosk: внутри должна быть папка am."""
         try:
@@ -76,17 +62,46 @@ class VoskSTT(BaseSTT):
 
     @staticmethod
     def resolve_model_path(saved: str = "") -> str:
-        """Какую модель использовать: своя папка models/ важнее сохранённого пути.
+        """Какую модель использовать.
 
-        Иначе установленная программа продолжала бы тянуть модель из папки, где
-        её когда-то собирали, и ломалась, стоит той папке исчезнуть.
+        Выбранная пользователем модель из своей папки models/ — главная. Путь
+        снаружи (например, из папки, где программу собирали) не доверяем и
+        ищем модель в своей папке заново: иначе установленная программа
+        ломалась, стоило той папке исчезнуть.
         """
+        if saved and VoskSTT._looks_like_model(saved):
+            try:
+                Path(saved).resolve().relative_to(MODELS_DIR.resolve())
+                return saved            # своя модель, выбранная вручную
+            except ValueError:
+                pass
         own = VoskSTT.autodetect_model()
         if own:
             return own
         if saved and VoskSTT._looks_like_model(saved):
             return saved
         return ""
+
+    @staticmethod
+    def autodetect_model() -> str:
+        """Ищет распакованную модель Vosk в папке models/.
+
+        Малая модель в приоритете: большая грузится больше минуты, и выбирать
+        её молча, без ведома пользователя, нельзя.
+        """
+        if not MODELS_DIR.exists():
+            return ""
+        found = []
+        for child in sorted(MODELS_DIR.iterdir()):
+            if child.is_dir() and (child / "am").exists():
+                found.append(child)
+            elif child.is_dir():
+                found.extend(sub for sub in child.iterdir()
+                             if sub.is_dir() and (sub / "am").exists())
+        if not found:
+            return ""
+        small = [f for f in found if "small" in f.name]
+        return str((small or found)[0])
 
     @staticmethod
     def is_available() -> tuple[bool, str]:

@@ -31,11 +31,42 @@ CATALOG = {
         "url": "https://alphacephei.com/vosk/models/vosk-model-ru-0.42.zip",
         "size_mb": 1847,
     },
+    # --- Whisper: распознаёт заметно лучше, работает на видеокарте
+    "whisper-small": {
+        "title": "Средняя — Whisper small",
+        "tier": "средняя",
+        "kind": "whisper",
+        "size": "small",
+        "repo": "Systran/faster-whisper-small",
+        "accuracy": "точность высокая",
+        "cost": "480 МБ · видеокарта",
+        "hint": "Заметно лучше Vosk на быстрой речи. На видеокарте один проход "
+                "занимает около 0.1 с. Нужна задержка от 700 мс.",
+        "size_mb": 480,
+    },
+    "whisper-medium": {
+        "title": "Очень мощная — Whisper medium",
+        "tier": "очень мощная",
+        "kind": "whisper",
+        "size": "medium",
+        "repo": "Systran/faster-whisper-medium",
+        "accuracy": "точность очень высокая",
+        "cost": "1.5 ГБ · видеокарта от 4 ГБ",
+        "hint": "Лучше всех разбирает невнятную и тихую речь. Проход дольше, "
+                "задержку стоит поставить от 900 мс.",
+        "size_mb": 1530,
+    },
 }
 
-# Уровень «средний» закрывается малой моделью в режиме повышенной нагрузки:
-# отдельной средней русской модели у Vosk нет.
-TIERS = ("слабая", "мощная")
+TIERS = ("слабая", "мощная", "средняя", "очень мощная")
+
+
+def is_installed(key: str) -> bool:
+    entry = CATALOG.get(key, {})
+    folder = MODELS_DIR / key
+    if entry.get("kind") == "whisper":
+        return (folder / "model.bin").exists()
+    return (folder / "am").exists()
 
 
 class ModelDownloader(QThread):
@@ -55,6 +86,10 @@ class ModelDownloader(QThread):
         entry = CATALOG.get(self.model_key)
         if entry is None:
             self.failed.emit("Неизвестная модель")
+            return
+
+        if entry.get("kind") == "whisper":
+            self._download_whisper(entry)
             return
 
         archive = MODELS_DIR / f"{self.model_key}.zip"
@@ -106,6 +141,24 @@ class ModelDownloader(QThread):
             self.finished_ok.emit(str(target))
         except Exception as exc:
             archive.unlink(missing_ok=True)
+            self.failed.emit(str(exc))
+
+    def _download_whisper(self, entry: dict) -> None:
+        target = MODELS_DIR / self.model_key
+        if (target / "model.bin").exists():
+            self.finished_ok.emit(str(target))
+            return
+        try:
+            from huggingface_hub import snapshot_download
+
+            self.progress.emit(5, "Загрузка модели Whisper... это может занять время")
+            snapshot_download(entry["repo"], local_dir=str(target))
+            if not (target / "model.bin").exists():
+                self.failed.emit("Модель скачалась не полностью")
+                return
+            self.progress.emit(100, "Готово")
+            self.finished_ok.emit(str(target))
+        except Exception as exc:
             self.failed.emit(str(exc))
 
     def _find_extracted(self):

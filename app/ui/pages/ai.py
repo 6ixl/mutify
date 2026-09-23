@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 
 from app.stt import factory
 from app.paths import MODELS_DIR
-from app.stt.downloader import CATALOG, ModelDownloader
+from app.stt.downloader import CATALOG, ModelDownloader, is_installed
 from app.stt.vosk_engine import VoskSTT
 from app.ui import theme
 from app.ui.widgets import (
@@ -456,7 +456,8 @@ class AIPage(QWidget):
         if entry is None:
             return
         self.catalog_hint.setText(entry["hint"])
-        colors = {"слабая": theme.WARN, "мощная": theme.OK}
+        colors = {"слабая": theme.WARN, "мощная": theme.OK,
+                  "средняя": theme.OK, "очень мощная": theme.OK}
         self.tag_accuracy.set_state(
             entry["accuracy"], colors.get(entry["tier"], theme.TEXT_MUTED)
         )
@@ -465,7 +466,7 @@ class AIPage(QWidget):
         if not hasattr(self, "download_btn"):
             return      # кнопки ещё не созданы, подпишем их позже
 
-        installed = (MODELS_DIR / key).exists()
+        installed = is_installed(key)
         self.download_btn.setEnabled(not installed)
         self.download_btn.setText(
             "Уже скачана" if installed else "Скачать модель"
@@ -473,17 +474,31 @@ class AIPage(QWidget):
         self.use_btn.setVisible(installed)
 
     def _use_selected(self) -> None:
-        """Переключиться на другую уже скачанную модель."""
+        """Переключиться на другую уже скачанную модель — Vosk или Whisper."""
         key = self.catalog_combo.currentData()
-        path = MODELS_DIR / key
-        if not path.exists():
+        entry = CATALOG.get(key, {})
+        if not is_installed(key):
             self.ctx.notify("Эта модель ещё не скачана", False)
             return
-        self._set("model_path", str(path))
+        self._activate(key, entry)
+
+    def _activate(self, key: str, entry: dict) -> None:
+        if entry.get("kind") == "whisper":
+            self.ctx.cfg.ai.engine = "whisper"
+            self.ctx.cfg.ai.whisper_model = entry["size"]
+            # Whisper разбирает окнами покрупнее, ему нужен запас задержки.
+            if self.ctx.cfg.mute.delay_ms < 700:
+                self.ctx.cfg.mute.delay_ms = 700
+                self.ctx.notify("Выбран Whisper, задержка поднята до 700 мс", True)
+        else:
+            self.ctx.cfg.ai.engine = "vosk"
+            self.ctx.cfg.ai.model_path = str(MODELS_DIR / key)
+        self.ctx.save_and_apply()
+        self.ctx.reload_settings_pages()
         if self.ctx.engine.running:
             self.ctx.notify("Модель сменится после перезапуска мута", False)
         else:
-            self.ctx.notify("Модель выбрана: " + key, True)
+            self.ctx.notify("Модель выбрана: " + entry.get("title", key), True)
         self.refresh()
 
     def _browse_model(self) -> None:
@@ -511,7 +526,8 @@ class AIPage(QWidget):
         self.progress.setFormat(message)
 
     def _on_downloaded(self, path: str) -> None:
-        self._set("model_path", path)
+        key = self.catalog_combo.currentData()
+        self._activate(key, CATALOG.get(key, {}))
         self.download_btn.setEnabled(True)
         self.progress.setVisible(False)
         self.ctx.notify("Модель готова к работе", True)

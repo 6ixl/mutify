@@ -67,7 +67,10 @@ class AIConfig:
     chunk_ms: int = 96                   # устаревшее, оставлено для старых настроек
     react_on_partial: bool = True        # реагировать на промежуточный результат (быстро)
     confidence: float = 0.45             # порог уверенности совпадения
-    fuzzy: bool = True                   # ловить словоформы и опечатки распознавания
+    # Модель выдаёт только слова из своего словаря, поэтому «искажённого мата»
+    # в её выводе не бывает, а нечёткий поиск глушит похожие обычные слова:
+    # «было», «вернул», «минута», «послал». Оставлен для ручной проверки.
+    fuzzy: bool = False
     fuzzy_threshold: float = 0.82        # схожесть для нечёткого совпадения
     root_matching: bool = True           # ловить по корню слова (матюки с приставками)
     lookahead_words: int = 1             # сколько слов держать перед решением
@@ -75,7 +78,7 @@ class AIConfig:
     whisper_model: str = "small"         # tiny/base/small/medium/large-v3
     whisper_device: str = "cuda"
     whisper_compute: str = "float16"
-    whisper_window_ms: int = 900         # окно анализа для whisper
+    whisper_window_ms: int = 1500        # окно анализа для whisper
 
 
 @dataclass
@@ -96,6 +99,7 @@ class GeneralConfig:
     hotkey_toggle: str = "Ctrl+Shift+M"  # включить/выключить мут
     hotkey_enabled: bool = True
     keep_history: bool = True            # вести журнал перехваченных слов
+    config_version: int = 2              # для одноразовых миграций настроек
     history_limit: int = 500
 
 
@@ -129,6 +133,11 @@ class AppConfig:
         ai = raw.get("ai") or {}
         if ai.get("confidence") == 0.55:        # прежнее значение по умолчанию
             self.ai.confidence = 0.45
+        version = (raw.get("general") or {}).get("config_version", 1)
+        if version < 2:
+            # Нечёткий поиск глушил обычные слова — выключаем у всех один раз.
+            self.ai.fuzzy = False
+            self.general.config_version = 2
 
     def _merge(self, raw: dict[str, Any]) -> None:
         for section in ("audio", "mute", "ai", "ui", "general"):

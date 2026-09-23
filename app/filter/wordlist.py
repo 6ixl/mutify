@@ -23,6 +23,7 @@ class WordList:
     def load(cls) -> "WordList":
         if not WORDS_FILE.exists():
             wl = cls()
+            wl.offered = set(default_words.ROOTS + default_words.EXACT)
             wl.save()
             return wl
         try:
@@ -35,11 +36,16 @@ class WordList:
             allow=raw.get("allow", list(default_words.ALLOW)),
             disabled=raw.get("disabled", []),
         )
+        # Какие стандартные слова уже предлагались этому пользователю. Нужно,
+        # чтобы новые слова из обновления приехали, а удалённые им — нет.
+        words.offered = set(raw.get("offered") or (
+            words.roots + words.exact + words.allow + words.disabled
+        ))
         words._migrate()
         return words
 
     # Корни, которые оказались опасными и цепляли обычные слова.
-    RETIRED_ROOTS = ("шпили",)
+    RETIRED_ROOTS = ("шпили", "гомос", "блудн", "драчун")
 
     def _migrate(self) -> None:
         """Подтянуть сохранённый словарь к текущему стандартному.
@@ -56,6 +62,29 @@ class WordList:
             if word not in self.allow:
                 self.allow.append(word)
                 changed = True
+
+        # Новые слова из обновления словаря. То, что уже предлагалось раньше и
+        # было удалено вручную, обратно не добавляем.
+        offered = getattr(self, "offered", set())
+        for bucket, defaults in ((self.roots, default_words.ROOTS),
+                                 (self.exact, default_words.EXACT)):
+            for word in defaults:
+                if word in offered:
+                    continue
+                offered.add(word)
+                if word not in bucket:
+                    bucket.append(word)
+                    changed = True
+        # Слова, переведённые в «мягкую брань», выключаем один раз.
+        for word in default_words.SOFT_OFF_BY_DEFAULT:
+            marker = "soft:" + word
+            if marker in offered:
+                continue
+            offered.add(marker)
+            if word not in self.disabled and (word in self.roots or word in self.exact):
+                self.disabled.append(word)
+                changed = True
+        self.offered = offered
         if changed:
             self.save()
 
@@ -67,6 +96,7 @@ class WordList:
                     "exact": self.exact,
                     "allow": self.allow,
                     "disabled": self.disabled,
+                    "offered": sorted(getattr(self, "offered", set())),
                 },
                 ensure_ascii=False,
                 indent=2,

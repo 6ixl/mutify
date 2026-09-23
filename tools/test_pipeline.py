@@ -40,6 +40,10 @@ def run(wav_path: str, realtime: bool = True) -> None:
     cfg.audio.samplerate = sr
     cfg.ai.model_path = VoskSTT.autodetect_model()
     cfg.mute.mode = "beep"
+    # ENGINE=whisper — проверить конвейер на Whisper вместо Vosk
+    cfg.ai.engine = os.environ.get("ENGINE", "vosk")
+    if cfg.ai.engine == "whisper":
+        cfg.mute.delay_ms = max(cfg.mute.delay_ms, 700)
 
     matcher = ProfanityMatcher(WordList.load(), cfg.ai)
     engine = AudioEngine(cfg, matcher)
@@ -58,10 +62,10 @@ def run(wav_path: str, realtime: bool = True) -> None:
     added = []
     original_add = engine._schedule.add
 
-    def tracking_add(start, end):
+    def tracking_add(start, end, restart=True):
         added.append((start, end))
         hits.append(("слово", "интервал"))
-        original_add(start, end)
+        original_add(start, end, restart)
 
     engine._schedule.add = tracking_add
 

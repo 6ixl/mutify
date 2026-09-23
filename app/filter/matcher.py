@@ -68,14 +68,29 @@ class ProfanityMatcher:
 
     def refresh(self) -> None:
         """Пересобрать индексы после правки словаря или настроек."""
+        # Словарные образцы нормализуем БЕЗ схлопывания повторов: иначе корень
+        # «ссан» превращался в «сан» и глушил «санаторий», «осанку», «Ниссан»,
+        # а «зассы» — в «засы» и глушил «засыпать». Растянутые буквы в речи
+        # («хууууй») по-прежнему схлопываются у самого слова.
+        def clean(word: str) -> str:
+            return normalize_keep_repeats(word)
+
         self._roots = tuple(sorted(
-            {normalize(w) for w in self.wordlist.active_roots() if len(normalize(w)) >= 3},
+            {clean(w) for w in self.wordlist.active_roots() if len(clean(w)) >= 3},
             key=len,
             reverse=True,
         ))
-        self._exact = {normalize(w) for w in self.wordlist.active_exact()
-                       if len(normalize(w)) >= 3}
-        self._allow = {normalize(w) for w in self.wordlist.allow if normalize(w)}
+        self._exact = {clean(w) for w in self.wordlist.active_exact()
+                       if len(clean(w)) >= 3}
+        # Короткие слова вроде «ёб» проверяются только на полное совпадение:
+        # корнем или нечётким сравнением двухбуквенное слово ловить нельзя.
+        self._short = {clean(w) for w in self.wordlist.active_exact()
+                       if len(clean(w)) == 2}
+        # Исключения храним в обоих видах: слово проверяется и схлопнутым,
+        # и целиком, иначе «вассал» проходил исключение в одной форме и
+        # ловился корнем «ссал» в другой.
+        self._allow = {form for w in self.wordlist.allow
+                       for form in (normalize(w), clean(w)) if form}
         # Нечёткое сравнение только для длинных образцов: на коротких корнях
         # оно приняло бы «тебе» за мат.
         self._fuzzy_pool = tuple(
@@ -87,6 +102,8 @@ class ProfanityMatcher:
     def check(self, raw_word: str) -> Match | None:
         word = normalize(raw_word)
         if len(word) < 3:
+            if word in self._short:
+                return Match(raw_word, "exact", 1.0)
             return None
 
         cached = self._cache.get(word)
