@@ -128,6 +128,39 @@ class AppConfig:
                 if hasattr(target, key):
                     setattr(target, key, value)
 
+    def export_to(self, path) -> None:
+        """Сохранить настройки в отдельный файл — для переноса на другой компьютер."""
+        from pathlib import Path
+
+        data = asdict(self)
+        data["_app"] = "Mutify"
+        Path(path).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    def import_from(self, path) -> tuple[bool, str]:
+        """Загрузить настройки из файла. Устройства не переносим: они свои у каждого."""
+        from pathlib import Path
+
+        try:
+            raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (ValueError, OSError) as exc:
+            return False, str(exc)
+        if not isinstance(raw, dict) or "audio" not in raw:
+            return False, "это не файл настроек Mutify"
+
+        devices = (
+            self.audio.input_device,
+            self.audio.output_device,
+            self.audio.monitor_device,
+        )
+        self._merge(raw)
+        (self.audio.input_device,
+         self.audio.output_device,
+         self.audio.monitor_device) = devices
+        self.save()
+        return True, "Настройки загружены"
+
     def reset(self) -> None:
         """Вернуть все настройки к заводским.
 

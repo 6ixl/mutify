@@ -19,6 +19,24 @@ OK = "#37E6A8"
 WARN = "#FFB84B"
 
 
+# Готовые неоновые пары «акцент — тёмный акцент» для смены цвета интерфейса.
+PRESETS: dict[str, tuple[str, str]] = {
+    "Фиолетовый": ("#B14BFF", "#7A2BFF"),
+    "Розовый": ("#FF4BD8", "#B02BFF"),
+    "Голубой": ("#4BC8FF", "#2B6BFF"),
+    "Мятный": ("#37E6A8", "#12A375"),
+    "Янтарный": ("#FFB84B", "#FF7A2B"),
+    "Алый": ("#FF4B6E", "#C4204A"),
+}
+
+
+def preset_name(accent: str) -> str:
+    for name, (first, _) in PRESETS.items():
+        if first.lower() == (accent or "").lower():
+            return name
+    return "Свой"
+
+
 def stylesheet(accent: str = ACCENT, accent_2: str = ACCENT_2) -> str:
     return f"""
 * {{

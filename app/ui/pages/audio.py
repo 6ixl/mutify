@@ -54,6 +54,13 @@ class AudioPage(QWidget):
         root.addWidget(self._levels_card())
         root.addWidget(self._processing_card())
         root.addWidget(self._cable_card())
+
+        reset_line = FlowLayout(spacing=8)
+        reset = QPushButton("Сбросить раздел «Аудио»")
+        reset.setObjectName("Ghost")
+        reset.clicked.connect(lambda: self.ctx.reset_section("audio"))
+        reset_line.addWidget(reset)
+        root.addLayout(reset_line)
         root.addStretch(1)
 
     # ------------------------------------------------------------ маршрут
@@ -135,6 +142,17 @@ class AudioPage(QWidget):
         self.delay_note.setObjectName("Hint")
         self.delay_note.setWordWrap(True)
         box.addWidget(self.delay_note)
+
+        line = FlowLayout(spacing=8)
+        auto_delay = QPushButton("Подобрать задержку по факту")
+        auto_delay.setObjectName("Ghost")
+        auto_delay.setToolTip(
+            "Смотрит, на сколько детекция отставала от эфира за эту сессию, "
+            "и ставит задержку с запасом"
+        )
+        auto_delay.clicked.connect(self._auto_delay)
+        line.addWidget(auto_delay)
+        box.addLayout(line)
         self._update_delay_note(cfg.delay_ms)
 
         self.block = SliderRow(
@@ -322,6 +340,18 @@ class AudioPage(QWidget):
         self.gate_threshold.set_value(int(self.ctx.cfg.audio.gate_threshold_db), silent=True)
         self.gate_release.set_value(self.ctx.cfg.audio.gate_release_ms, silent=True)
         self._update_delay_note(self.ctx.cfg.mute.delay_ms)
+
+    def _auto_delay(self) -> None:
+        suggested = self.ctx.engine.suggest_delay_ms()
+        if suggested is None:
+            self.ctx.notify(
+                "Мало данных: поработайте с мутом хотя бы минуту и повторите", False
+            )
+            return
+        self.ctx.cfg.mute.delay_ms = suggested
+        self.ctx.save_and_apply()
+        self.reload_values()
+        self.ctx.notify(f"Задержка подобрана: {suggested} мс", True)
 
     def _open_calibration(self) -> None:
         from app.ui.calibration_dialog import CalibrationDialog

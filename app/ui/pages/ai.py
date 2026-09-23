@@ -53,6 +53,14 @@ class AIPage(QWidget):
         root.addWidget(self._hearing_card())
         root.addWidget(self._strictness_card())
         root.addWidget(self._whisper_card())
+
+        reset_line = FlowLayout(spacing=8)
+        reset = QPushButton("Сбросить раздел «Модель ИИ»")
+        reset.setObjectName("Ghost")
+        reset.setToolTip("Скачанная модель останется на месте")
+        reset.clicked.connect(lambda: self.ctx.reset_section("ai"))
+        reset_line.addWidget(reset)
+        root.addLayout(reset_line)
         root.addStretch(1)
         self.refresh()
 

@@ -228,6 +228,11 @@ class MainWindow(QWidget):
         self.engine_state_timer = QTimer(self)
         self.engine_state_timer.timeout.connect(self._update_side_state)
         self.engine_state_timer.start(700)
+
+        # Присмотр за звуковыми устройствами: их могут отключить на ходу.
+        self.device_timer = QTimer(self)
+        self.device_timer.timeout.connect(self._watch_devices)
+        self.device_timer.start(3000)
         return bar
 
     # ------------------------------------------------------- трей и клавиши
@@ -368,6 +373,59 @@ class MainWindow(QWidget):
         self.cfg.save()
         self.matcher.refresh()
         self.engine.reload_sound()
+
+    def apply_theme(self, accent: str, accent_2: str) -> None:
+        """Сменить цвет интерфейса без перезапуска."""
+        self.cfg.ui.accent = accent
+        self.cfg.ui.accent_2 = accent_2
+        self.cfg.save()
+        self.setStyleSheet(theme.stylesheet(accent, accent_2))
+        for page in self.pages.values():
+            if hasattr(page, "restyle"):
+                page.restyle()
+
+    def _watch_devices(self) -> None:
+        """Если устройство выдернули, мут молча умирал — теперь поднимаем заново."""
+        if not self.engine.running or self.engine.streams_alive():
+            self._restart_attempts = 0
+            return
+        self._restart_attempts = getattr(self, "_restart_attempts", 0) + 1
+        if self._restart_attempts > 3:
+            return
+        self.engine.stop()
+        devices.refresh_backend()
+        devices.autoconfigure(self.cfg.audio)
+        self.cfg.save()
+        if self.engine.start():
+            self.notify("Устройство пропало — мут перезапущен", True)
+        else:
+            self.notify("Устройство пропало, мут остановлен", False)
+        self.pages["dashboard"].refresh()
+
+    def reset_section(self, section: str) -> None:
+        """Сбросить один раздел настроек: звук, модель или аудио."""
+        from app.config import AIConfig, AudioConfig, MuteConfig
+
+        if section == "mute":
+            self.cfg.mute = MuteConfig()
+        elif section == "ai":
+            model = self.cfg.ai.model_path
+            self.cfg.ai = AIConfig()
+            self.cfg.ai.model_path = model
+        elif section == "audio":
+            keep = (self.cfg.audio.input_device, self.cfg.audio.output_device,
+                    self.cfg.audio.monitor_device)
+            self.cfg.audio = AudioConfig()
+            (self.cfg.audio.input_device, self.cfg.audio.output_device,
+             self.cfg.audio.monitor_device) = keep
+        else:
+            return
+        self.cfg.save()
+        self.matcher.refresh()
+        self.engine.reload_sound()
+        self.reload_settings_pages()
+        self.pages["dashboard"].refresh()
+        self.notify("Раздел сброшен к заводским настройкам", True)
 
     def reset_settings(self) -> None:
         """Сброс всех настроек к заводским, с переподбором устройств."""

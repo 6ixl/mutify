@@ -61,6 +61,13 @@ class SoundsPage(QWidget):
 
         root.addWidget(self._library_card())
 
+        reset_line = FlowLayout(spacing=8)
+        reset = QPushButton("Сбросить раздел «Заглушение»")
+        reset.setObjectName("Ghost")
+        reset.clicked.connect(lambda: self.ctx.reset_section("mute"))
+        reset_line.addWidget(reset)
+        root.addLayout(reset_line)
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._relayout(self.width())

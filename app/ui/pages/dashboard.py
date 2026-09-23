@@ -157,7 +157,9 @@ class DashboardPage(QWidget):
         self.model_badge = Badge("модель")
         self.cable_badge = Badge("кабель")
         self.delay_badge = Badge("задержка")
-        for badge in (self.model_badge, self.cable_badge, self.delay_badge):
+        self.health_badge = Badge("успеваемость")
+        for badge in (self.model_badge, self.cable_badge, self.delay_badge,
+                      self.health_badge):
             badges.addWidget(badge)
         box.addLayout(badges)
 
@@ -379,9 +381,14 @@ class DashboardPage(QWidget):
             "кабель найден" if cable else "VB-Cable не найден",
             theme.OK if cable else theme.WARN,
         )
-        self.delay_badge.set_state(f"задержка {cfg.mute.delay_ms} мс", theme.ACCENT)
+        self.delay_badge.set_state(f"задержка {cfg.mute.delay_ms} мс", cfg.ui.accent)
+        self._update_health()
         self.update_counters()
         self._update_profile_hint()
+
+    def restyle(self) -> None:
+        """Пересобрать цвета после смены акцента темы."""
+        self.refresh()
 
     def _on_partial(self, text: str) -> None:
         self.transcript.setText(text or "—")
@@ -409,11 +416,30 @@ class DashboardPage(QWidget):
         self.refresh()
 
     def _on_stats(self, events: int, seconds: float) -> None:
+        self._update_health()
         stats = self.ctx.stats
         stats.set_session_seconds(seconds)
         self.events_value.setText(str(stats.session_events))
         self.muted_value.setText(f"{seconds:.1f} с")
         self.total_value.setText(str(stats.total_events))
+
+    def _update_health(self) -> None:
+        """Успевает ли фильтр: среднее опоздание детекции и нагрузка на процессор."""
+        engine = self.ctx.engine
+        if not engine.lags_ms:
+            self.health_badge.set_state("нет данных", theme.TEXT_MUTED)
+            return
+        average = sum(engine.lags_ms) / len(engine.lags_ms)
+        load = engine.cpu_load * 100
+        text = f"опоздание {average:.0f} мс · нагрузка {load:.0f}%"
+        if engine.missed:
+            text += f" · не успели {engine.missed}"
+            color = theme.DANGER
+        elif average > self.ctx.cfg.mute.delay_ms * 0.7:
+            color = theme.WARN
+        else:
+            color = theme.OK
+        self.health_badge.set_state(text, color)
 
     def update_counters(self) -> None:
         stats = self.ctx.stats

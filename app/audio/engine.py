@@ -13,6 +13,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
+from collections import deque
 
 import numpy as np
 from PySide6.QtCore import QObject, Signal
@@ -65,6 +66,9 @@ class AudioEngine(QObject):
         self.missed = 0
         self._gate_gain = 1.0
         self._last_mute_end = 0      # конец прошлого заглушения — для склейки серий
+        # На сколько детекция отставала от эфира: по этим цифрам подбирается задержка.
+        self.lags_ms: deque = deque(maxlen=200)
+        self.cpu_load = 0.0          # доля времени, которую занимает распознавание
         self._last_level_emit = 0.0
         self._last_stats_emit = 0.0
         self._muting_now = False
@@ -86,6 +90,8 @@ class AudioEngine(QObject):
         self._stt_offset = 0
         self.missed = 0
         self._last_mute_end = 0
+        self.lags_ms.clear()
+        self.cpu_load = 0.0
 
         try:
             self._stt = factory.create(self.cfg.ai, sr)
@@ -319,11 +325,20 @@ class AudioEngine(QObject):
                 continue
             if pcm is None:
                 break
+            started = time.monotonic()
             try:
                 results = self._stt.feed(pcm)
             except Exception as exc:
                 self.status.emit("Ошибка распознавания: {}".format(exc), False)
                 continue
+
+            # Во сколько раз распознавание медленнее реального времени.
+            spent = time.monotonic() - started
+            audio_seconds = len(pcm) / 2 / self.cfg.audio.samplerate
+            if audio_seconds > 0:
+                share = spent / audio_seconds
+                self.cpu_load = self.cpu_load * 0.9 + share * 0.1
+
             for result in results:
                 self._handle_result(result)
 
@@ -381,6 +396,10 @@ class AudioEngine(QObject):
             # Если этот кусок уже ушёл в эфир, заглушать нечего — честно
             # показываем это в ленте, чтобы было видно, что буфер мал.
             played = self._ring.read_pos if self._ring is not None else 0
+            # Опоздание: насколько эфир обогнал момент, когда слово закончилось.
+            word_end = int(word.end * sr) + self._stt_offset
+            self.lags_ms.append(max(0.0, (played - word_end) * 1000.0 / sr))
+
             if end <= played:
                 self.missed += 1
                 self.profanity.emit(word.text, "не успели: увеличьте задержку")
@@ -397,6 +416,33 @@ class AudioEngine(QObject):
                 self.profanity.emit(words[-1], "partial")
 
     # ----------------------------------------------------- применение настроек
+    def suggest_delay_ms(self) -> int | None:
+        """Какая задержка нужна, чтобы успевать за детекцией.
+
+        Берём худшие опоздания за сессию и добавляем запас — по одному
+        случайному замеру настраиваться нельзя.
+        """
+        if len(self.lags_ms) < 5:
+            return None
+        values = sorted(self.lags_ms)
+        worst = values[int(len(values) * 0.95) - 1]
+        needed = int(worst + self.cfg.mute.pre_pad_ms + 120)
+        return max(200, min(2000, (needed // 25) * 25))
+
+    def streams_alive(self) -> bool:
+        """Живы ли звуковые потоки: устройство могли выдернуть из розетки."""
+        if not self.running:
+            return True
+        for stream in (self._in_stream, self._out_stream):
+            if stream is None:
+                return False
+            try:
+                if not stream.active:
+                    return False
+            except Exception:
+                return False
+        return True
+
     def reload_sound(self) -> None:
         if self._sound is not None:
             self._sound.load(self.cfg.mute)

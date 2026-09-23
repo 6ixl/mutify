@@ -6,8 +6,8 @@ import os
 import subprocess
 
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
-    QVBoxLayout, QWidget
+    QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget
 )
 
 from app.branding import APP_NAME, APP_TAGLINE, APP_VERSION
@@ -43,12 +43,35 @@ class GeneralPage(QWidget):
         hint.setObjectName("PageHint")
         root.addWidget(hint)
 
+        root.addWidget(self._look_card())
         root.addWidget(self._startup_card())
         root.addWidget(self._tray_card())
         root.addWidget(self._hotkey_card())
         root.addWidget(self._reset_card())
         root.addWidget(self._about_card())
         root.addStretch(1)
+
+    # --------------------------------------------------------------- вид
+    def _look_card(self) -> Card:
+        card = Card("Внешний вид", "Цвет интерфейса меняется сразу, без перезапуска.")
+        box = card.body()
+
+        self.theme_combo = QComboBox()
+        for name in theme.PRESETS:
+            self.theme_combo.addItem(name, name)
+        current = theme.preset_name(self.ctx.cfg.ui.accent)
+        index = self.theme_combo.findData(current)
+        if index >= 0:
+            self.theme_combo.setCurrentIndex(index)
+        self.theme_combo.currentIndexChanged.connect(self._set_theme)
+        box.addWidget(Row("Цвет акцента", self.theme_combo))
+        return card
+
+    def _set_theme(self) -> None:
+        name = self.theme_combo.currentData()
+        colors = theme.PRESETS.get(name)
+        if colors:
+            self.ctx.apply_theme(*colors)
 
     # ------------------------------------------------------------ автозапуск
     def _startup_card(self) -> Card:
@@ -149,7 +172,8 @@ class GeneralPage(QWidget):
 
         line = FlowLayout(spacing=8)
 
-        settings = QPushButton("Сбросить настройки")
+        settings = QPushButton("Сбросить все настройки")
+        settings.setObjectName("Danger")
         settings.setToolTip(
             "Звук, задержка, модель, аудио и поведение программы — к заводским"
         )
@@ -173,11 +197,54 @@ class GeneralPage(QWidget):
         line.addWidget(profiles)
         box.addLayout(line)
 
+        transfer = FlowLayout(spacing=8)
+        save_btn = QPushButton("Сохранить настройки в файл")
+        save_btn.setObjectName("Ghost")
+        save_btn.clicked.connect(self._export)
+        transfer.addWidget(save_btn)
+
+        load_btn = QPushButton("Загрузить из файла")
+        load_btn.setObjectName("Ghost")
+        load_btn.clicked.connect(self._import)
+        transfer.addWidget(load_btn)
+        box.addLayout(transfer)
+
         box.addWidget(hint_label(
             "Сброс настроек остановит мут и заново подберёт микрофон и выход. "
             "Свои звуки в папке и скачанная модель остаются.", self
         ))
         return card
+
+    def _export(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить настройки", "mutify-settings.json", "JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            self.ctx.cfg.export_to(path)
+        except OSError as exc:
+            self.ctx.notify("Не удалось сохранить: " + str(exc), False)
+            return
+        self.ctx.notify("Настройки сохранены в файл", True)
+
+    def _import(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Загрузить настройки", "", "JSON (*.json)"
+        )
+        if not path:
+            return
+        ok, message = self.ctx.cfg.import_from(path)
+        if not ok:
+            self.ctx.notify("Не удалось загрузить: " + message, False)
+            return
+        self.ctx.matcher.refresh()
+        self.ctx.engine.reload_sound()
+        self.ctx.apply_hotkeys()
+        self.ctx.reload_settings_pages()
+        self.ctx.pages["dashboard"].refresh()
+        self.refresh()
+        self.ctx.notify(message, True)
 
     def _confirm(self, title: str, question: str) -> bool:
         answer = QMessageBox.question(self, title, question)
@@ -304,4 +371,14 @@ class GeneralPage(QWidget):
         self.autostart_toggle.blockSignals(True)
         self.autostart_toggle.setChecked(autostart.is_enabled())
         self.autostart_toggle.blockSignals(False)
+        for toggle, value in ((self.automute_toggle, self.ctx.cfg.general.autostart_mute),
+                              (self.minimize_toggle, self.ctx.cfg.general.minimize_to_tray),
+                              (self.close_toggle, self.ctx.cfg.general.close_to_tray),
+                              (self.notify_toggle, self.ctx.cfg.general.tray_notifications),
+                              (self.hotkey_toggle, self.ctx.cfg.general.hotkey_enabled)):
+            toggle.blockSignals(True)
+            toggle.setChecked(value)
+            toggle.blockSignals(False)
+        self.panic_input.setText(self.ctx.cfg.general.hotkey_panic)
+        self.toggle_input.setText(self.ctx.cfg.general.hotkey_toggle)
         self._update_hotkey_badge()
