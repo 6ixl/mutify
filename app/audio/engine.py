@@ -98,11 +98,11 @@ class AudioEngine(QObject):
         self._last_mute_end = 0
         self.lags_ms.clear()
         self.cpu_load = 0.0
-        self.tuned_hop = self.cfg.ai.hop_ms
-        self.tuned_window = self.cfg.ai.window_ms
-        self.tuned_alternatives = self.cfg.ai.alternatives
+        self.tuned_hop, self.tuned_window, self.tuned_alternatives = (
+            factory.mode_values(self.cfg.ai)
+        )
         self._last_tune = 0.0
-        if self.cfg.ai.adaptive and self.system_load is None:
+        if self.cfg.ai.power_mode == "auto" and self.system_load is None:
             from app.system.load import SystemLoad
 
             self.system_load = SystemLoad()
@@ -440,7 +440,7 @@ class AudioEngine(QObject):
         мут не должен мешать игре или записи.
         """
         ai = self.cfg.ai
-        if not ai.adaptive or self.system_load is None or ai.engine != "vosk":
+        if ai.power_mode != "auto" or self.system_load is None or ai.engine != "vosk":
             return
 
         now = time.monotonic()
@@ -460,7 +460,7 @@ class AudioEngine(QObject):
             alternatives = min(ai.max_alternatives, alternatives + 1)
         elif busy > target:
             hop = min(ai.max_hop_ms, hop + 25)
-            window = max(ai.window_ms, window - 100)
+            window = max(700, window - 100)
             alternatives = max(2, alternatives - 1)
         else:
             return

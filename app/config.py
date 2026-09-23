@@ -56,7 +56,9 @@ class AIConfig:
     alternatives: int = 4                # сколько вариантов расшифровки проверять
     # Подстройка под свободные ресурсы: пока компьютер не занят, модель
     # работает тщательнее, а под нагрузкой сама отступает.
-    adaptive: bool = True
+    # Режим нагрузки: minimal | economy | balanced | maximum | auto
+    power_mode: str = "auto"
+    adaptive: bool = True                # оставлено для старых настроек
     target_load: int = 70                # до какой загрузки машины разгоняться
     max_hop_ms: int = 400                # самый экономный шаг проверки
     min_hop_ms: int = 100                # самый частый шаг

@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.stt import factory
+from app.paths import MODELS_DIR
 from app.stt.downloader import CATALOG, ModelDownloader
 from app.stt.vosk_engine import VoskSTT
 from app.ui import theme
@@ -106,7 +107,15 @@ class AIPage(QWidget):
         self.catalog_combo = QComboBox()
         for key, entry in CATALOG.items():
             self.catalog_combo.addItem(entry["title"], key)
-        box.addWidget(Row("Какую скачать", self.catalog_combo))
+        box.addWidget(Row("Уровень модели", self.catalog_combo))
+
+        # Две пометки у каждой модели: чего ждать по качеству и чем платим.
+        self.tag_accuracy = Badge()
+        self.tag_cost = Badge()
+        tags = FlowLayout(spacing=8)
+        tags.addWidget(self.tag_accuracy)
+        tags.addWidget(self.tag_cost)
+        box.addLayout(tags)
 
         self.catalog_hint = hint_label("", self)
         self.catalog_combo.currentIndexChanged.connect(self._update_catalog_hint)
@@ -118,6 +127,11 @@ class AIPage(QWidget):
         self.download_btn.clicked.connect(self._download)
         line.addWidget(self.download_btn)
 
+        self.use_btn = QPushButton("Использовать эту")
+        self.use_btn.setObjectName("Ghost")
+        self.use_btn.clicked.connect(self._use_selected)
+        line.addWidget(self.use_btn)
+
         browse = QPushButton("Указать папку вручную...")
         browse.setObjectName("Ghost")
         browse.clicked.connect(self._browse_model)
@@ -127,6 +141,7 @@ class AIPage(QWidget):
         self.progress = QProgressBar()
         self.progress.setVisible(False)
         self.progress.setTextVisible(True)
+        self._update_catalog_hint()
         self.progress.setStyleSheet(
             f"QProgressBar {{ background: {theme.BG}; border: 1px solid {theme.BORDER};"
             f" border-radius: 8px; height: 20px; text-align: center; }}"
@@ -147,20 +162,21 @@ class AIPage(QWidget):
         )
         box = card.body()
 
-        self.adaptive = ToggleSwitch()
-        self.adaptive.setChecked(ai.adaptive)
-        self.adaptive.toggled.connect(self._toggle_adaptive)
-        box.addWidget(
-            Row("Использовать свободные ресурсы", self.adaptive,
-                "Пока компьютер не занят, модель слушает чаще и разбирает больше "
-                "вариантов — мата проскакивает меньше. Как только запустите игру "
-                "или запись, приложение само отступит.")
-        )
+        self.power_combo = QComboBox()
+        for key, preset in factory.POWER_MODES.items():
+            self.power_combo.addItem(preset["title"], key)
+        index = self.power_combo.findData(ai.power_mode)
+        self.power_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.power_combo.currentIndexChanged.connect(self._set_power_mode)
+        box.addWidget(Row("Режим нагрузки", self.power_combo))
+
+        self.power_hint = hint_label("", self)
+        box.addWidget(self.power_hint)
 
         self.target_load = SliderRow(
             "До какой загрузки разгоняться", 20, 95, ai.target_load, " %",
-            "Считается загрузка всего компьютера, а не только этой программы. "
-            "70% — разумный предел: игре останется запас.",
+            "Работает в автоматическом режиме. Считается загрузка всего "
+            "компьютера: 70% оставляет запас игре.",
             step=5,
         )
         self.target_load.changed.connect(lambda v: self._set("target_load", v))
@@ -358,9 +374,11 @@ class AIPage(QWidget):
         self.alternatives.set_value(ai.alternatives, silent=True)
         self.silence.set_value(int(ai.silence_level_db), silent=True)
         self.target_load.set_value(ai.target_load, silent=True)
-        self.adaptive.blockSignals(True)
-        self.adaptive.setChecked(ai.adaptive)
-        self.adaptive.blockSignals(False)
+        index = self.power_combo.findData(ai.power_mode)
+        if index >= 0:
+            self.power_combo.blockSignals(True)
+            self.power_combo.setCurrentIndex(index)
+            self.power_combo.blockSignals(False)
         self.confidence.set_value(int(ai.confidence * 100), silent=True)
         self.fuzzy_threshold.set_value(int(ai.fuzzy_threshold * 100), silent=True)
         self.whisper_window.set_value(ai.whisper_window_ms, silent=True)
@@ -384,17 +402,32 @@ class AIPage(QWidget):
         setattr(self.ctx.cfg.ai, field, value)
         self.ctx.save_and_apply()
 
-    def _toggle_adaptive(self, enabled: bool) -> None:
-        self._set("adaptive", enabled)
-        self.target_load.setEnabled(enabled)
+    def _set_power_mode(self) -> None:
+        mode = self.power_combo.currentData()
+        self._set("power_mode", mode)
+        self._apply_mode_state()
+        if self.ctx.engine.running:
+            self.ctx.notify("Режим нагрузки применится к текущему муту сразу", True)
+
+    def _apply_mode_state(self) -> None:
+        """Ползунки глубины активны только в ручном режиме."""
+        mode = self.ctx.cfg.ai.power_mode
+        preset = factory.POWER_MODES.get(mode)
+        self.power_hint.setText(preset["hint"] if preset else "Значения задаются вручную.")
+        self.target_load.setEnabled(mode == "auto")
+        manual = preset is None
         for widget in (self.hop, self.window, self.alternatives):
-            widget.setEnabled(not enabled)
+            widget.setEnabled(manual)
+        if preset and mode != "auto":
+            self.hop.set_value(preset["hop_ms"], silent=True)
+            self.window.set_value(preset["window_ms"], silent=True)
+            self.alternatives.set_value(preset["alternatives"], silent=True)
         self._update_tuning_badge()
 
     def _update_tuning_badge(self) -> None:
         """Показывает, с какой глубиной модель работает прямо сейчас."""
         ai = self.ctx.cfg.ai
-        if not ai.adaptive:
+        if ai.power_mode not in factory.POWER_MODES:
             self.tuning_badge.set_state("ручные настройки", theme.TEXT_MUTED)
             return
         engine = self.ctx.engine
@@ -419,7 +452,39 @@ class AIPage(QWidget):
 
     def _update_catalog_hint(self) -> None:
         key = self.catalog_combo.currentData()
-        self.catalog_hint.setText(CATALOG[key]["hint"])
+        entry = CATALOG.get(key)
+        if entry is None:
+            return
+        self.catalog_hint.setText(entry["hint"])
+        colors = {"слабая": theme.WARN, "мощная": theme.OK}
+        self.tag_accuracy.set_state(
+            entry["accuracy"], colors.get(entry["tier"], theme.TEXT_MUTED)
+        )
+        self.tag_cost.set_state(entry["cost"], theme.ACCENT_2)
+
+        if not hasattr(self, "download_btn"):
+            return      # кнопки ещё не созданы, подпишем их позже
+
+        installed = (MODELS_DIR / key).exists()
+        self.download_btn.setEnabled(not installed)
+        self.download_btn.setText(
+            "Уже скачана" if installed else "Скачать модель"
+        )
+        self.use_btn.setVisible(installed)
+
+    def _use_selected(self) -> None:
+        """Переключиться на другую уже скачанную модель."""
+        key = self.catalog_combo.currentData()
+        path = MODELS_DIR / key
+        if not path.exists():
+            self.ctx.notify("Эта модель ещё не скачана", False)
+            return
+        self._set("model_path", str(path))
+        if self.ctx.engine.running:
+            self.ctx.notify("Модель сменится после перезапуска мута", False)
+        else:
+            self.ctx.notify("Модель выбрана: " + key, True)
+        self.refresh()
 
     def _browse_model(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Папка модели Vosk")
@@ -466,10 +531,7 @@ class AIPage(QWidget):
                 f"{name}: {info}", theme.OK if ok else theme.WARN
             )
 
-        self._update_tuning_badge()
-        self.target_load.setEnabled(self.ctx.cfg.ai.adaptive)
-        for widget in (self.hop, self.window, self.alternatives):
-            widget.setEnabled(not self.ctx.cfg.ai.adaptive)
+        self._apply_mode_state()
 
         path = self.ctx.cfg.ai.model_path or VoskSTT.autodetect_model()
         if path:
