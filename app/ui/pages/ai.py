@@ -48,6 +48,7 @@ class AIPage(QWidget):
         root.addWidget(self._engine_card())
         root.addWidget(self._model_card())
         root.addWidget(self._speed_card())
+        root.addWidget(self._hearing_card())
         root.addWidget(self._strictness_card())
         root.addWidget(self._whisper_card())
         root.addStretch(1)
@@ -177,12 +178,49 @@ class AIPage(QWidget):
             )
         )
 
+        self.alternatives = SliderRow(
+            "Вариантов расшифровки", 1, 8, ai.alternatives, "",
+            "Модель нередко ставит верное слово не первым: «сука» в лучшей догадке "
+            "теряется, а во второй-третьей есть. Больше вариантов — лучше ловится "
+            "тихая и невнятная речь, чуть выше нагрузка.",
+        )
+        self.alternatives.changed.connect(lambda v: self._set("alternatives", v))
+        box.addWidget(self.alternatives)
+
         self.threads = SliderRow(
             "Потоков процессора", 1, 16, ai.max_cpu_threads, "",
             "Для Ryzen 5 8400F оптимально 4-6.",
         )
         self.threads.changed.connect(lambda v: self._set("max_cpu_threads", v))
         box.addWidget(self.threads)
+        return card
+
+    # ---------------------------------------------------------- тихая речь
+    def _hearing_card(self) -> Card:
+        ai = self.ctx.cfg.ai
+        card = Card(
+            "Тихая и невнятная речь",
+            "Если вы говорите тихо или бубните, модель может просто не получить звук.",
+        )
+        box = card.body()
+
+        self.silence = SliderRow(
+            "Порог тишины", -75, -35, int(ai.silence_level_db), " дБ",
+            "Всё тише этого приложение считает молчанием и не отдаёт модели. "
+            "Говорите тихо — опускайте порог; слишком низкий заставит модель "
+            "постоянно разбирать фоновый шум.",
+        )
+        self.silence.changed.connect(lambda v: self._set("silence_level_db", float(v)))
+        box.addWidget(self.silence)
+
+        self.normalize = ToggleSwitch()
+        self.normalize.setChecked(ai.normalize_quiet)
+        self.normalize.toggled.connect(lambda v: self._set("normalize_quiet", v))
+        box.addWidget(
+            Row("Подтягивать тихую речь", self.normalize,
+                "Перед распознаванием громкость копии выравнивается. "
+                "На звук в эфире это не влияет — усиливается только то, что слышит модель.")
+        )
         return card
 
     # ------------------------------------------------------------ строгость
@@ -286,11 +324,14 @@ class AIPage(QWidget):
         self.hop.set_value(ai.hop_ms, silent=True)
         self.window.set_value(ai.window_ms, silent=True)
         self.threads.set_value(ai.max_cpu_threads, silent=True)
+        self.alternatives.set_value(ai.alternatives, silent=True)
+        self.silence.set_value(int(ai.silence_level_db), silent=True)
         self.confidence.set_value(int(ai.confidence * 100), silent=True)
         self.fuzzy_threshold.set_value(int(ai.fuzzy_threshold * 100), silent=True)
         self.whisper_window.set_value(ai.whisper_window_ms, silent=True)
         for toggle, value in ((self.partial, ai.react_on_partial),
                               (self.skip_silence, ai.skip_silence),
+                              (self.normalize, ai.normalize_quiet),
                               (self.roots, ai.root_matching),
                               (self.fuzzy, ai.fuzzy)):
             toggle.blockSignals(True)

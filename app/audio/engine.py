@@ -214,14 +214,18 @@ class AudioEngine(QObject):
         delay = int(self.cfg.audio.samplerate * self.cfg.mute.delay_ms / 1000)
         data, pos = self._ring.read(frames, delay)
 
+        starts: list[int] = []
         if self.manual_mute:
             mask = np.ones(frames, dtype=bool)
         else:
-            mask = self._schedule.covers(pos, frames)
+            covered = self._schedule.covers(pos, frames)
+            mask, starts = covered if covered is not None else (None, [])
 
         if mask is not None:
             env = self._smooth(mask.astype(np.float32))
-            replacement = self._sound.take(frames, self.cfg.mute.sound_volume)
+            # На каждом новом слове звук замены начинается заново, поэтому два
+            # мата подряд звучат как два сигнала, а не один тянущийся.
+            replacement = self._sound.render(frames, starts, self.cfg.mute.sound_volume)
             data = data * (1.0 - env) + replacement * env
             active = bool(env.max() > 0.5)
         else:

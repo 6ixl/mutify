@@ -26,7 +26,9 @@ class VoskSTT(BaseSTT):
 
     def __init__(self, samplerate: int, model_path: str = "", threads: int = 4,
                  react_on_partial: bool = True, window_ms: int = 1000,
-                 hop_ms: int = 250, skip_silence: bool = True) -> None:
+                 hop_ms: int = 250, skip_silence: bool = True,
+                 silence_level_db: float = -58.0, normalize_quiet: bool = True,
+                 alternatives: int = 4) -> None:
         super().__init__(samplerate)
         self.model_path = model_path or self.autodetect_model()
         self.threads = threads
@@ -34,7 +36,11 @@ class VoskSTT(BaseSTT):
         self.window = max(1, int(samplerate * window_ms / 1000))
         self.hop = max(1, int(samplerate * hop_ms / 1000))
         self.skip_silence = skip_silence
-        self.silence_level = 0.004
+        self.silence_level = float(10.0 ** (silence_level_db / 20.0))
+        self.normalize_quiet = normalize_quiet
+        self.target_level = 0.08        # к этой громкости подтягиваем тихую речь
+        self.max_boost = 24.0           # но не громче, иначе шум станет «речью»
+        self.alternatives = max(0, int(alternatives))
 
         self._rec = None
         self._model = None
@@ -120,6 +126,11 @@ class VoskSTT(BaseSTT):
             ) from exc
         self._rec = vosk.KaldiRecognizer(self._model, float(self.samplerate))
         self._rec.SetWords(True)
+        if self.alternatives > 1:
+            # Модель нередко ставит верное слово не первым: «сука» в лучшей
+            # гипотезе теряется, а во второй-третьей есть. Поэтому смотрим
+            # несколько вариантов расшифровки сразу.
+            self._rec.SetMaxAlternatives(self.alternatives)
         self._buffer = np.zeros(0, dtype=np.int16)
         self._stream_pos = 0
         self._since_last = 0
@@ -159,10 +170,18 @@ class VoskSTT(BaseSTT):
         return results
 
     def _process(self, window: np.ndarray, window_start: int) -> STTResult | None:
-        if self.skip_silence:
-            level = float(np.sqrt(np.mean((window.astype(np.float32) / 32768.0) ** 2)))
-            if level < self.silence_level:
-                return None
+        samples = window.astype(np.float32) / 32768.0
+        level = float(np.sqrt(np.mean(samples ** 2)))
+        if self.skip_silence and level < self.silence_level:
+            return None
+
+        if self.normalize_quiet and 0 < level < self.target_level:
+            # Тихую и невнятную речь модель разбирает заметно хуже, поэтому
+            # окно подтягивается по громкости. На звук в эфире это не влияет —
+            # усиливается только копия, которая уходит в модель.
+            boost = min(self.max_boost, self.target_level / level)
+            loud = np.clip(samples * boost, -1.0, 1.0)
+            window = (loud * 32767.0).astype(np.int16)
 
         # Reset() не обнуляет внутренние часы распознавателя, поэтому время,
         # накопленное за прошлые окна, вычитаем сами.
@@ -174,7 +193,7 @@ class VoskSTT(BaseSTT):
 
         offset = window_start / self.samplerate
         words: list[Word] = []
-        for item in data.get("result") or []:
+        for item in self._iter_words(data):
             text = item.get("word", "")
             if not text:
                 continue
@@ -195,6 +214,18 @@ class VoskSTT(BaseSTT):
             return None
         return STTResult(words=words, text=" ".join(w.text for w in words),
                          is_final=True)
+
+    @staticmethod
+    def _iter_words(data: dict):
+        """Слова из ответа Vosk — хоть обычного, хоть со списком гипотез."""
+        seen_alternatives = data.get("alternatives")
+        if seen_alternatives:
+            for alternative in seen_alternatives:
+                for item in alternative.get("result") or []:
+                    yield item
+            return
+        for item in data.get("result") or []:
+            yield item
 
     def flush(self) -> list[STTResult]:
         if self._rec is None or len(self._buffer) == 0:

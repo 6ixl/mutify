@@ -46,9 +46,12 @@ class AIConfig:
     hop_ms: int = 250                    # как часто проверяем речь
     window_ms: int = 1000                # сколько последних секунд слушает модель за раз
     skip_silence: bool = True            # не гонять модель по тишине — экономит процессор
+    silence_level_db: float = -58.0      # тише этого окно считается тишиной
+    normalize_quiet: bool = True         # подтягивать громкость перед распознаванием
+    alternatives: int = 4                # сколько вариантов расшифровки проверять
     chunk_ms: int = 96                   # устаревшее, оставлено для старых настроек
     react_on_partial: bool = True        # реагировать на промежуточный результат (быстро)
-    confidence: float = 0.55             # порог уверенности совпадения
+    confidence: float = 0.45             # порог уверенности совпадения
     fuzzy: bool = True                   # ловить словоформы и опечатки распознавания
     fuzzy_threshold: float = 0.82        # схожесть для нечёткого совпадения
     root_matching: bool = True           # ловить по корню слова (матюки с приставками)
@@ -99,7 +102,18 @@ class AppConfig:
             except (ValueError, OSError):
                 return cfg
             cfg._merge(raw)
+            cfg._migrate(raw)
         return cfg
+
+    def _migrate(self, raw: dict[str, Any]) -> None:
+        """Подтягиваем старые настройки к новым умолчаниям.
+
+        Значения, которые пользователь не трогал, обновляются: иначе после
+        обновления программы он остался бы со старой, менее чуткой настройкой.
+        """
+        ai = raw.get("ai") or {}
+        if ai.get("confidence") == 0.55:        # прежнее значение по умолчанию
+            self.ai.confidence = 0.45
 
     def _merge(self, raw: dict[str, Any]) -> None:
         for section in ("audio", "mute", "ai", "ui", "general"):

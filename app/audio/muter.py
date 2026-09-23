@@ -11,7 +11,12 @@ from app.config import MuteConfig
 
 
 class MuteSchedule:
-    """Потокобезопасный список интервалов [start, end) в абсолютных сэмплах."""
+    """Потокобезопасный список интервалов [start, end) в абсолютных сэмплах.
+
+    Интервалы хранятся по отдельности, даже если они наслаиваются: каждое
+    матерное слово — своё заглушение, и звук замены должен начинаться для
+    него заново.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -23,22 +28,26 @@ class MuteSchedule:
         if end <= start:
             return
         with self._lock:
-            # Склеиваем с соседним интервалом, если они пересекаются.
             for span in self._spans:
-                if start <= span[1] and end >= span[0]:
-                    span[0] = min(span[0], start)
+                # Повторная догадка модели про то же слово — просто продлеваем.
+                if abs(span[0] - start) < 1600 and start <= span[1]:
                     span[1] = max(span[1], end)
                     return
             self._spans.append([start, end])
             self.events += 1
 
-    def covers(self, pos: int, n: int) -> np.ndarray | None:
-        """Маска длины n: True там, где сэмпл должен быть заглушён."""
+    def covers(self, pos: int, n: int) -> tuple[np.ndarray, list[int]] | None:
+        """Маска заглушения для блока и позиции, где начинаются новые слова.
+
+        Позиции стартов нужны, чтобы перезапустить звук замены: два мата
+        подряд должны звучать как два отдельных сигнала, а не один тянущийся.
+        """
         with self._lock:
             if not self._spans:
                 return None
             self._spans = [s for s in self._spans if s[1] > pos - 48000]
             mask = np.zeros(n, dtype=bool)
+            starts: list[int] = []
             hit = False
             for start, end in self._spans:
                 if end <= pos or start >= pos + n:
@@ -47,10 +56,12 @@ class MuteSchedule:
                 b = min(n, end - pos)
                 mask[a:b] = True
                 hit = True
+                if pos <= start < pos + n:
+                    starts.append(int(start - pos))
             if not hit:
                 return None
             self.total_muted += int(mask.sum())
-            return mask
+            return mask, sorted(starts)
 
     def clear(self) -> None:
         with self._lock:
@@ -113,6 +124,26 @@ class ReplacementSound:
             self._phase = (self._phase + chunk) % len(self._data)
             filled += chunk
         return out * volume
+
+    def render(self, n: int, starts: list[int], volume: float) -> np.ndarray:
+        """Блок подменного звука, где на каждой позиции из starts он начинается заново.
+
+        Благодаря этому два мата подряд звучат как два отдельных сигнала.
+        """
+        if not starts:
+            return self.take(n, volume)
+
+        out = np.empty(n, dtype=np.float32)
+        cursor = 0
+        for start in starts:
+            start = max(0, min(n, start))
+            if start > cursor:
+                out[cursor:start] = self.take(start - cursor, volume)
+            self.rewind()
+            cursor = start
+        if cursor < n:
+            out[cursor:n] = self.take(n - cursor, volume)
+        return out
 
     def rewind(self) -> None:
         self._phase = 0

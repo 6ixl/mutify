@@ -31,6 +31,9 @@ def create(cfg: AIConfig, samplerate: int) -> BaseSTT:
         window_ms=cfg.window_ms,
         hop_ms=cfg.hop_ms,
         skip_silence=cfg.skip_silence,
+        silence_level_db=cfg.silence_level_db,
+        normalize_quiet=cfg.normalize_quiet,
+        alternatives=cfg.alternatives,
     )
 
 
